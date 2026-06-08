@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.sepid.example
+!.env.web.example
 
 # Database (production data stays on server only)
 *.db

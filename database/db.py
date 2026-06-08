@@ -361,6 +361,45 @@ def ensure_schema() -> None:
             except Exception:
                 pass
 
+        # --- Web companion (additive columns/tables; existing bot users unaffected) ---
+        cols = _table_columns(conn, "users")
+        if "password_hash" not in cols:
+            cur.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+        if "web_account_completed_at" not in cols:
+            cur.execute("ALTER TABLE users ADD COLUMN web_account_completed_at TEXT")
+        if "auth_source" not in cols:
+            cur.execute("ALTER TABLE users ADD COLUMN auth_source TEXT")
+            cur.execute(
+                "UPDATE users SET auth_source = 'telegram' "
+                "WHERE auth_source IS NULL OR TRIM(COALESCE(auth_source, '')) = ''"
+            )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS web_auth_challenges (
+                id TEXT PRIMARY KEY,
+                phone_number TEXT,
+                email TEXT,
+                purpose TEXT NOT NULL,
+                code_hash TEXT,
+                user_telegram_id INTEGER,
+                payload_json TEXT,
+                expires_at INTEGER NOT NULL,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+            """
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_web_auth_challenges_phone "
+            "ON web_auth_challenges(phone_number)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_web_auth_challenges_email "
+            "ON web_auth_challenges(email)"
+        )
+        cur.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES ('web_synthetic_id_seq', '-9000000000')"
+        )
+
         conn.commit()
 
 
@@ -1231,7 +1270,9 @@ def update_euro_advert_field_for_owner(
     *,
     skip_active_offer_guard: bool = False,
 ) -> bool:
-    allowed = frozenset({"euro_amount", "rate_toman", "description"})
+    allowed = frozenset(
+        {"euro_amount", "rate_toman", "description", "methods", "account_country", "instant_transfer"}
+    )
     if field not in allowed:
         return False
     try:
