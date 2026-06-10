@@ -8,8 +8,23 @@ import time
 from telegram import Bot
 from telegram.constants import ParseMode
 
-from database.db import deal_gate_get, deal_gate_upsert, get_advert_offer_joined, get_euro_advert_by_rowid
-from handlers.deal_gate import _commit_party_account, _log, _on_both_yes, _on_gate_rejected
+from database.db import (
+    deal_gate_append_buyer_receipt,
+    deal_gate_append_seller_receipt,
+    deal_gate_get,
+    deal_gate_upsert,
+    get_advert_offer_joined,
+    get_euro_advert_by_rowid,
+)
+from handlers.deal_gate import (
+    _commit_party_account,
+    _deal_gate_allows_party_receipts,
+    _log,
+    _notify_buyer_euro_receipt_confirm,
+    _on_both_yes,
+    _on_gate_rejected,
+    sync_deal_admin_notification,
+)
 from services.offer_owner_actions import WebBotContext
 from state import user_data_store
 
@@ -38,6 +53,8 @@ def enrich_deal_status(*, gate: dict | None, row: dict, user_id: int) -> dict:
     my_account_sent = False
     can_respond = False
     can_submit_account = False
+    can_submit_receipt = False
+    receipt_kind = None
 
     if gate and party_role:
         my_key = "buyer_response" if party_role == "buyer" else "seller_response"
@@ -48,10 +65,38 @@ def enrich_deal_status(*, gate: dict | None, row: dict, user_id: int) -> dict:
             can_respond = True
         if st == "accounts" and my_response == "yes" and not my_account_sent:
             can_submit_account = True
+        if _deal_gate_allows_party_receipts(gate):
+            can_submit_receipt = True
+            receipt_kind = "toman" if party_role == "buyer" else "euro"
 
     from config.settings import BOT_USERNAME
 
     bot_link = f"https://t.me/{BOT_USERNAME}" if BOT_USERNAME else None
+
+    _STATUS_FA = {
+        "pending": "در انتظار تأیید نهایی",
+        "accounts": "ثبت حساب بانکی",
+        "completed": "تأیید حساب — مرحله پرداخت",
+        "closed": "بسته شده",
+        "rejected": "رد شده",
+    }
+    status_label = _STATUS_FA.get(st or "", st or "—")
+    needs_telegram_handoff = bool(
+        gate
+        and not can_submit_receipt
+        and (
+            st == "completed"
+            or (st == "accounts" and not can_respond and not can_submit_account)
+        )
+    )
+    if gate and st == "completed" and not can_submit_receipt:
+        telegram_hint = "رسید واریز، تأیید ادمین و تسویه — فقط از ربات تلگرام."
+    elif gate and st == "completed" and can_submit_receipt:
+        telegram_hint = "فیش را اینجا بفرستید؛ تأیید ادمین و تسویه از ربات تلگرام انجام می‌شود."
+    elif gate and st not in ("closed", "rejected"):
+        telegram_hint = "مراحل پیشرفته (رسید، تأیید ادمین) از ربات تلگرام انجام می‌شود."
+    else:
+        telegram_hint = None
 
     return {
         "offer_id": int(row["id"]),
@@ -62,21 +107,21 @@ def enrich_deal_status(*, gate: dict | None, row: dict, user_id: int) -> dict:
         "my_response": my_response,
         "can_respond": can_respond,
         "can_submit_account": can_submit_account,
+        "can_submit_receipt": can_submit_receipt,
+        "receipt_kind": receipt_kind,
+        "needs_telegram_handoff": needs_telegram_handoff,
         "bot_link": bot_link,
         "gate": {
             "active": gate is not None,
             "status": st,
+            "status_label": status_label,
             "buyer_confirmed": (gate or {}).get("buyer_response") == "yes" if gate else False,
             "seller_confirmed": (gate or {}).get("seller_response") == "yes" if gate else False,
             "buyer_account_sent": bool((gate or {}).get("buyer_accounts_text")) if gate else False,
             "seller_account_sent": bool((gate or {}).get("seller_accounts_text")) if gate else False,
         },
         "telegram_required": gate is not None and st not in ("closed", "rejected"),
-        "telegram_hint": (
-            "مراحل پیشرفته (رسید، تأیید ادمین) از ربات تلگرام انجام می‌شود."
-            if gate and st not in ("closed", "rejected")
-            else None
-        ),
+        "telegram_hint": telegram_hint,
     }
 
 
@@ -213,4 +258,126 @@ async def submit_account_text(
         text=acct,
         user_message_id=None,
     )
+    return True, None
+
+
+async def submit_receipt_text(
+    bot: Bot,
+    *,
+    offer_id: int,
+    user_id: int,
+    text: str,
+) -> tuple[bool, str | None]:
+    body = (text or "").strip()
+    if len(body) < 2:
+        return False, "متن فیش را کامل‌تر بنویسید."
+    if len(body) > 2000:
+        return False, "متن فیش حداکثر ۲۰۰۰ نویسه."
+
+    gate = deal_gate_get(offer_id)
+    if not gate or not _deal_gate_allows_party_receipts(gate):
+        return False, "ارسال فیش در این مرحله مجاز نیست."
+
+    uid = int(user_id)
+    party_role = _party_role_for_user(gate, uid)
+    if not party_role:
+        return False, "شما طرف این معامله نیستید."
+
+    oid = int(offer_id)
+    advert_rowid = int(gate.get("advert_rowid") or 0)
+
+    if party_role == "seller":
+        if int(gate.get("seller_telegram_id") or 0) != uid:
+            return False, "شما طرف این معامله نیستید."
+        items = deal_gate_append_seller_receipt(oid, entry_type="text", text=body)
+        gate = deal_gate_get(oid) or gate
+        idx = len(items) - 1
+        _log(oid, f"فیش یورو متنی فروشنده ({len(body)} کاراکتر) (وب)", from_role="seller")
+        await _notify_buyer_euro_receipt_confirm(
+            bot,
+            offer_id=oid,
+            gate=gate,
+            receipt_index=idx,
+            entry_type="text",
+            text=body,
+        )
+    else:
+        if int(gate.get("buyer_telegram_id") or 0) != uid:
+            return False, "شما طرف این معامله نیستید."
+        deal_gate_append_buyer_receipt(oid, entry_type="text", text=body)
+        _log(oid, f"فیش واریز متنی خریدار ({len(body)} کاراکتر) (وب)", from_role="buyer")
+
+    await sync_deal_admin_notification(bot, oid, deal_complete=True)
+    return True, None
+
+
+async def submit_receipt_photo(
+    bot: Bot,
+    *,
+    offer_id: int,
+    user_id: int,
+    file_bytes: bytes,
+    filename: str,
+    caption: str = "",
+) -> tuple[bool, str | None]:
+    if not file_bytes or len(file_bytes) < 32:
+        return False, "فایل تصویر نامعتبر است."
+    if len(file_bytes) > 10 * 1024 * 1024:
+        return False, "حداکثر حجم تصویر ۱۰ مگابایت."
+
+    gate = deal_gate_get(offer_id)
+    if not gate or not _deal_gate_allows_party_receipts(gate):
+        return False, "ارسال فیش در این مرحله مجاز نیست."
+
+    uid = int(user_id)
+    if uid <= 0:
+        return False, "ارسال عکس فیش فقط برای حساب متصل به تلگرام ممکن است."
+
+    party_role = _party_role_for_user(gate, uid)
+    if not party_role:
+        return False, "شما طرف این معامله نیستید."
+
+    from telegram import InputFile
+
+    oid = int(offer_id)
+    cap = (caption or "").strip()[:400]
+    try:
+        uploaded = await bot.send_photo(
+            uid,
+            photo=InputFile(file_bytes, filename=filename or "receipt.jpg"),
+            caption=f"{_RTL}✅ فیش از وب ثبت شد.",
+        )
+        file_id = uploaded.photo[-1].file_id if uploaded.photo else ""
+    except Exception:
+        logger.exception("deal_gate_web receipt photo upload failed uid=%s offer=%s", uid, oid)
+        return False, "آپلود تصویر به تلگرام ناموفق بود."
+
+    if not file_id:
+        return False, "آپلود تصویر ناموفق بود."
+
+    if party_role == "seller":
+        if int(gate.get("seller_telegram_id") or 0) != uid:
+            return False, "شما طرف این معامله نیستید."
+        items = deal_gate_append_seller_receipt(
+            oid, entry_type="photo", text=cap, file_id=file_id
+        )
+        gate = deal_gate_get(oid) or gate
+        idx = len(items) - 1
+        _log(oid, "فیش یورو عکس فروشنده (وب)", from_role="seller")
+        await _notify_buyer_euro_receipt_confirm(
+            bot,
+            offer_id=oid,
+            gate=gate,
+            receipt_index=idx,
+            entry_type="photo",
+            text=cap,
+            file_id=file_id,
+        )
+    else:
+        if int(gate.get("buyer_telegram_id") or 0) != uid:
+            return False, "شما طرف این معامله نیستید."
+        deal_gate_append_buyer_receipt(oid, entry_type="photo", text=cap, file_id=file_id)
+        _log(oid, "فیش واریز عکس خریدار (وب)", from_role="buyer")
+
+    await sync_deal_admin_notification(bot, oid, deal_complete=True)
     return True, None

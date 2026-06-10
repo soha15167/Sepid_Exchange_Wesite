@@ -8,6 +8,7 @@ import { apiFetch, fmtNum, type DealStatus, type Offer } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { offerStatusLabel } from "@/components/IncomingOffersPanel";
 import { DealGatePanel } from "@/components/DealGatePanel";
+import { NegotiationPanel } from "@/components/NegotiationPanel";
 
 export default function MyOffersPage() {
   const { user, token, loading } = useAuth();
@@ -164,6 +165,9 @@ export default function MyOffersPage() {
                     onChange={reload}
                     compact
                   />
+                )}
+                {(o.status || "pending") === "pending" && (
+                  <NegotiationPanel offerId={o.id} token={token} />
                 )}
               </li>
             );

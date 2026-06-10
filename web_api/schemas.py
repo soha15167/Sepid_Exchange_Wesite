@@ -94,3 +94,11 @@ class DealResponseRequest(BaseModel):
 
 class DealAccountRequest(BaseModel):
     text: str = Field(..., min_length=2, max_length=2000)
+
+
+class DealReceiptRequest(BaseModel):
+    text: str = Field(..., min_length=2, max_length=2000)
+
+
+class NegotiationPostRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=2000)

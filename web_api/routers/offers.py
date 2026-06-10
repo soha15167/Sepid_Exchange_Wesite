@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from telegram import Bot
 
 from config.settings import BOT_TOKEN
@@ -14,7 +14,14 @@ from database.db import (
     list_my_pending_offers_all,
 )
 from services.advert_publish import refresh_advert_on_channel
-from services.deal_gate_web import enrich_deal_status, submit_account_text, submit_party_response
+from services.deal_gate_web import (
+    enrich_deal_status,
+    submit_account_text,
+    submit_party_response,
+    submit_receipt_photo,
+    submit_receipt_text,
+)
+from services.negotiation_web import post_negotiation_message
 from services.offer_flow import get_offer_flow_config, notify_offer_created, validate_and_submit_offer
 from services.offer_owner_actions import (
     accept_offer_as_owner,
@@ -24,7 +31,14 @@ from services.offer_owner_actions import (
     withdraw_offer_as_proposer,
 )
 from web_api.deps import get_current_user
-from web_api.schemas import DealAccountRequest, DealResponseRequest, OfferCreateRequest, OfferRateUpdateRequest
+from web_api.schemas import (
+    DealAccountRequest,
+    DealReceiptRequest,
+    DealResponseRequest,
+    NegotiationPostRequest,
+    OfferCreateRequest,
+    OfferRateUpdateRequest,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["offers"])
@@ -247,11 +261,74 @@ def deal_status(offer_id: int, user: dict = Depends(get_current_user)):
 
     gate = deal_gate_get(offer_id)
     payload = enrich_deal_status(gate=gate, row=row, user_id=uid)
-    st = payload["gate"].get("status")
-    payload["gate"]["status_label"] = _GATE_STATUS_FA.get(st or "", st or "—")
     advert = get_euro_advert_by_rowid(int(row["advert_rowid"]))
     payload["advert_operation"] = advert.get("operation") if advert else None
     return payload
+
+
+_ROLE_FA = {
+    "owner": "آگهی‌دهنده",
+    "proposer": "پیشنهاددهنده",
+    "system": "سیستم",
+    "admin": "ادمین",
+    "buyer": "خریدار",
+    "seller": "فروشنده",
+    "other": "؟",
+}
+
+
+@router.get("/offers/{offer_id}/negotiation")
+def offer_negotiation(offer_id: int, user: dict = Depends(get_current_user)):
+    from database.db import negotiation_transcript_list
+
+    row = get_advert_offer_joined(offer_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="پیشنهاد یافت نشد.")
+    uid = int(user["telegram_id"])
+    owner = int(row.get("owner_id") or 0)
+    proposer = int(row.get("proposer_telegram_id") or 0)
+    if uid not in (owner, proposer):
+        raise HTTPException(status_code=403, detail="دسترسی ندارید.")
+    st = (row.get("status") or "pending").strip().lower()
+    lines = negotiation_transcript_list(offer_id)
+    can_post = st == "pending"
+    return {
+        "offer_id": offer_id,
+        "status": st,
+        "can_post": can_post,
+        "post_hint": None if can_post else "این پیشنهاد دیگر در وضعیت مذاکره نیست.",
+        "lines": [
+            {"role": _ROLE_FA.get((e.get("from") or "other"), "؟"), "text": e.get("text") or ""}
+            for e in lines
+        ],
+    }
+
+
+@router.post("/offers/{offer_id}/negotiation")
+async def post_offer_negotiation(
+    offer_id: int,
+    body: NegotiationPostRequest,
+    user: dict = Depends(get_current_user),
+):
+    bot = _bot()
+    ok, err = await post_negotiation_message(
+        bot,
+        offer_id=offer_id,
+        user_id=int(user["telegram_id"]),
+        text=body.text,
+    )
+    if not ok:
+        raise HTTPException(status_code=400, detail=err or "ارسال نشد.")
+    from database.db import negotiation_transcript_list
+
+    lines = negotiation_transcript_list(offer_id)
+    return {
+        "ok": True,
+        "lines": [
+            {"role": _ROLE_FA.get((e.get("from") or "other"), "؟"), "text": e.get("text") or ""}
+            for e in lines
+        ],
+    }
 
 
 @router.post("/deals/{offer_id}/response")
@@ -291,6 +368,56 @@ async def deal_account_submit(
         offer_id=offer_id,
         user_id=int(user["telegram_id"]),
         text=body.text,
+    )
+    if not ok:
+        raise HTTPException(status_code=400, detail=err or "ثبت نشد.")
+    row = get_advert_offer_joined(offer_id)
+    gate = deal_gate_get(offer_id)
+    payload = enrich_deal_status(gate=gate, row=row or {}, user_id=int(user["telegram_id"]))
+    return {"ok": True, "deal": payload}
+
+
+@router.post("/deals/{offer_id}/receipts")
+async def deal_receipt_submit(
+    offer_id: int,
+    body: DealReceiptRequest,
+    user: dict = Depends(get_current_user),
+):
+    bot = _bot()
+    if not bot:
+        raise HTTPException(status_code=503, detail="ربات در دسترس نیست.")
+    ok, err = await submit_receipt_text(
+        bot,
+        offer_id=offer_id,
+        user_id=int(user["telegram_id"]),
+        text=body.text,
+    )
+    if not ok:
+        raise HTTPException(status_code=400, detail=err or "ثبت نشد.")
+    row = get_advert_offer_joined(offer_id)
+    gate = deal_gate_get(offer_id)
+    payload = enrich_deal_status(gate=gate, row=row or {}, user_id=int(user["telegram_id"]))
+    return {"ok": True, "deal": payload}
+
+
+@router.post("/deals/{offer_id}/receipts/photo")
+async def deal_receipt_photo(
+    offer_id: int,
+    user: dict = Depends(get_current_user),
+    file: UploadFile = File(...),
+    caption: str = Form(""),
+):
+    bot = _bot()
+    if not bot:
+        raise HTTPException(status_code=503, detail="ربات در دسترس نیست.")
+    raw = await file.read()
+    ok, err = await submit_receipt_photo(
+        bot,
+        offer_id=offer_id,
+        user_id=int(user["telegram_id"]),
+        file_bytes=raw,
+        filename=file.filename or "receipt.jpg",
+        caption=caption,
     )
     if not ok:
         raise HTTPException(status_code=400, detail=err or "ثبت نشد.")

@@ -22,6 +22,12 @@ export type UserProfile = {
   web_account_complete: boolean;
   auth_source?: string;
   is_admin?: boolean;
+  username?: string | null;
+  address?: string | null;
+  has_password?: boolean;
+  bot_link?: string;
+  channel_link?: string;
+  can_publish_adverts?: boolean;
 };
 
 type AuthCtx = {

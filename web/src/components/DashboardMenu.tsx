@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import clsx from "clsx";
-import { ArrowLeft, ClipboardList, Newspaper, Rocket, UserCircle } from "lucide-react";
+import { ArrowLeft, ClipboardList, Newspaper, Rocket, Scale, ScrollText, UserCircle } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 const ITEMS: { href: string; label: string; desc: string; icon: LucideIcon; accent: string }[] = [
@@ -33,6 +33,20 @@ const ITEMS: { href: string; label: string; desc: string; icon: LucideIcon; acce
     desc: "ویرایش، حذف و پیشنهادهای ورودی",
     icon: Newspaper,
     accent: "hover:border-accent-violet/35 hover:bg-accent-violet/5",
+  },
+  {
+    href: "/rules",
+    label: "قوانین کانال",
+    desc: "همان متن ربات",
+    icon: ScrollText,
+    accent: "hover:border-white/20 hover:bg-white/[0.04]",
+  },
+  {
+    href: "/fees",
+    label: "کارمزدها",
+    desc: "جدول کارمزد یورو",
+    icon: Scale,
+    accent: "hover:border-white/20 hover:bg-white/[0.04]",
   },
 ];
 

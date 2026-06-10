@@ -84,6 +84,18 @@ export function AdminPanel() {
     rate_toman: "",
     description: "",
   });
+  const [userEditForm, setUserEditForm] = useState({
+    display_name: "",
+    email: "",
+    phone_number: "",
+  });
+  const [advertEditForm, setAdvertEditForm] = useState({
+    description: "",
+    rate_toman: "",
+    fee_override_eur: "",
+  });
+  const [gateLookupId, setGateLookupId] = useState("");
+  const [gateLookup, setGateLookup] = useState<Record<string, unknown> | null>(null);
   const [msg, setMsg] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -201,6 +213,11 @@ export function AdminPanel() {
     try {
       const d = await apiFetch<{ user: Record<string, unknown> }>(`/api/admin/users/${id}`, {}, token);
       setDetail(d.user);
+      setUserEditForm({
+        display_name: String(d.user.display_name || ""),
+        email: String(d.user.email || ""),
+        phone_number: String(d.user.phone_number || ""),
+      });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "خطا");
     } finally {
@@ -214,6 +231,11 @@ export function AdminPanel() {
     try {
       const d = await apiFetch<{ advert: Record<string, unknown> }>(`/api/admin/adverts/${id}`, {}, token);
       setDetail(d.advert);
+      setAdvertEditForm({
+        description: String(d.advert.description || ""),
+        rate_toman: String(d.advert.rate_toman || ""),
+        fee_override_eur: d.advert.fee_override_eur != null ? String(d.advert.fee_override_eur) : "",
+      });
       setView("edit_advert");
     } catch (e) {
       setErr(e instanceof Error ? e.message : "خطا");
@@ -436,6 +458,98 @@ export function AdminPanel() {
     }
   }
 
+  async function saveUserEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!token || !targetId) return;
+    setBusy(true);
+    setErr("");
+    try {
+      await apiFetch(
+        `/api/admin/users/${targetId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            display_name: userEditForm.display_name,
+            email: userEditForm.email,
+            phone_number: userEditForm.phone_number,
+          }),
+        },
+        token,
+      );
+      setMsg("✅ کاربر به‌روز شد.");
+      loadUserDetail(targetId);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "خطا");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveAdvertEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!token || !detail?.id) return;
+    setBusy(true);
+    setErr("");
+    try {
+      const aid = String(detail.id);
+      if (advertEditForm.description.trim()) {
+        await apiFetch(
+          `/api/admin/adverts/${aid}/field`,
+          { method: "PATCH", body: JSON.stringify({ field: "description", value: advertEditForm.description.trim() }) },
+          token,
+        );
+      }
+      if (advertEditForm.rate_toman.replace(/\D/g, "")) {
+        await apiFetch(
+          `/api/admin/adverts/${aid}/field`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({ field: "rate_toman", value: advertEditForm.rate_toman.replace(/\D/g, "") }),
+          },
+          token,
+        );
+      }
+      const feeRaw = advertEditForm.fee_override_eur.trim();
+      await apiFetch(
+        `/api/admin/adverts/${aid}/fee`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            fee_override_eur: feeRaw ? Number(feeRaw) : null,
+          }),
+        },
+        token,
+      );
+      setMsg("✅ آگهی به‌روز شد.");
+      loadAdvertDetail(aid);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "خطا");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function lookupDealGate() {
+    if (!token || !gateLookupId.trim()) return;
+    setBusy(true);
+    setErr("");
+    try {
+      const q = gateLookupId.trim();
+      const isOffer = q.startsWith("o") || q.includes("offer");
+      const num = q.replace(/\D/g, "");
+      const url = isOffer
+        ? `/api/admin/deal-gates/lookup?offer_id=${num}`
+        : `/api/admin/deal-gates/lookup?advert_id=${num}`;
+      const d = await apiFetch<{ gate: Record<string, unknown> }>(url, {}, token);
+      setGateLookup(d.gate);
+    } catch (e) {
+      setGateLookup(null);
+      setErr(e instanceof Error ? e.message : "خطا");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!user?.is_admin) {
     return <p className="text-red-300">دسترسی ادمین ندارید.</p>;
   }
@@ -556,13 +670,37 @@ export function AdminPanel() {
             بارگذاری
           </button>
           {detail && (
-            <dl className="mt-4 space-y-2 text-sm">
-              <Row l="شناسه" v={formatId(detail.telegram_id as number)} ltr />
-              <Row l="نام نمایشی" v={String(detail.display_name || "—")} />
-              <Row l="موبایل" v={formatPhone(detail.phone_number as string)} ltr />
-              <Row l="ایمیل" v={formatEmail(detail.email as string)} ltr />
-              <Row l="محدود" v={detail.is_restricted ? "بله" : "خیر"} />
-            </dl>
+            <>
+              <dl className="mt-4 space-y-2 text-sm">
+                <Row l="شناسه" v={formatId(detail.telegram_id as number)} ltr />
+                <Row l="محدود" v={detail.is_restricted ? "بله" : "خیر"} />
+              </dl>
+              <form onSubmit={saveUserEdit} className="mt-4 space-y-3">
+                <input
+                  className="input-field"
+                  placeholder="نام نمایشی"
+                  value={userEditForm.display_name}
+                  onChange={(e) => setUserEditForm({ ...userEditForm, display_name: e.target.value })}
+                />
+                <input
+                  className="input-field"
+                  dir="ltr"
+                  placeholder="email"
+                  value={userEditForm.email}
+                  onChange={(e) => setUserEditForm({ ...userEditForm, email: e.target.value })}
+                />
+                <input
+                  className="input-field ltr-phone"
+                  dir="ltr"
+                  placeholder="+989..."
+                  value={userEditForm.phone_number}
+                  onChange={(e) => setUserEditForm({ ...userEditForm, phone_number: e.target.value })}
+                />
+                <button type="submit" disabled={busy} className="btn-primary">
+                  ذخیره تغییرات
+                </button>
+              </form>
+            </>
           )}
         </ActionCard>
       )}
@@ -681,9 +819,33 @@ export function AdminPanel() {
             <Row l="صاحب" v={String(detail.owner_name || "—")} />
             <Row l="نوع" v={String(detail.operation || "—")} />
             <Row l="یورو" v={fmtNum(detail.euro_amount as number)} ltr />
-            <Row l="نرخ" v={fmtNum(detail.rate_toman as number)} ltr />
             <Row l="کارمزد" v={String(detail.fee_display || "—")} />
           </dl>
+          <form onSubmit={saveAdvertEdit} className="mt-4 space-y-3">
+            <textarea
+              className="input-field min-h-[80px]"
+              placeholder="توضیحات"
+              value={advertEditForm.description}
+              onChange={(e) => setAdvertEditForm({ ...advertEditForm, description: e.target.value })}
+            />
+            <input
+              className="input-field"
+              dir="ltr"
+              placeholder="نرخ تومان"
+              value={advertEditForm.rate_toman}
+              onChange={(e) => setAdvertEditForm({ ...advertEditForm, rate_toman: e.target.value })}
+            />
+            <input
+              className="input-field"
+              dir="ltr"
+              placeholder="کارمزد override (€) — خالی = پیش‌فرض"
+              value={advertEditForm.fee_override_eur}
+              onChange={(e) => setAdvertEditForm({ ...advertEditForm, fee_override_eur: e.target.value })}
+            />
+            <button type="submit" disabled={busy} className="btn-primary">
+              ذخیره آگهی
+            </button>
+          </form>
           <div className="mt-4 flex flex-wrap gap-2">
             <button type="button" className="btn-ghost text-sm" onClick={() => loadOffers(String(detail.id))}>
               پیشنهادها
@@ -756,8 +918,25 @@ export function AdminPanel() {
 
       {view === "deal_gates" && (
         <ActionCard title="وضعیت معاملات (Deal Gate)">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row">
+            <input
+              className="input-field"
+              dir="ltr"
+              placeholder="offer_id یا advert_id"
+              value={gateLookupId}
+              onChange={(e) => setGateLookupId(e.target.value)}
+            />
+            <button type="button" className="btn-primary" onClick={lookupDealGate} disabled={busy}>
+              جستجو
+            </button>
+          </div>
+          {gateLookup && (
+            <pre className="mb-4 max-h-48 overflow-auto rounded-lg bg-ink-950/60 p-3 text-xs text-white/70">
+              {JSON.stringify(gateLookup, null, 2)}
+            </pre>
+          )}
           <button type="button" className="btn-ghost mb-3 gap-2 text-sm" onClick={loadDealGates}>
-            <RefreshCw className="h-4 w-4" /> بروزرسانی
+            <RefreshCw className="h-4 w-4" /> بروزرسانی لیست
           </button>
           {gates.length === 0 ? (
             <p className="text-white/40">معاملهٔ فعالی نیست.</p>

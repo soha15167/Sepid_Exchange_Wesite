@@ -352,6 +352,36 @@ def user_public_profile(user: dict) -> dict:
     }
 
 
+def user_self_profile(user: dict) -> dict:
+    """Full profile for authenticated user (own account page)."""
+    tid = int(user.get("telegram_id") or 0)
+    dn = (user.get("display_name") or "").strip()
+    fn = f"{user.get('full_name') or ''} {user.get('last_name') or ''}".strip()
+    from config.settings import BOT_USERNAME, CHANNEL_USERNAME
+
+    bot_user = (BOT_USERNAME or "Sepid_Group_Bot").strip().lstrip("@")
+    ch_user = (CHANNEL_USERNAME or "Sepid_Exchange").strip().lstrip("@")
+    return {
+        "telegram_id": tid,
+        "display_name": dn or fn or "کاربر",
+        "full_name": user.get("full_name"),
+        "last_name": user.get("last_name"),
+        "username": user.get("username"),
+        "email": user.get("email"),
+        "phone_number": user.get("phone_number"),
+        "address": user.get("address"),
+        "has_telegram": tid > 0,
+        "is_web_only": is_synthetic_web_user(tid),
+        "web_account_complete": is_web_account_complete(user),
+        "auth_source": user.get("auth_source") or "telegram",
+        "is_admin": tid in set(ADMIN_IDS or []),
+        "has_password": bool(user.get("password_hash")),
+        "bot_link": f"https://t.me/{bot_user}",
+        "channel_link": f"https://t.me/{ch_user}",
+        "can_publish_adverts": tid > 0,
+    }
+
+
 def _mask_email(email: str | None) -> str | None:
     em = (email or "").strip()
     if not em or "@" not in em:

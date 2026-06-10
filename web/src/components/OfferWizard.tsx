@@ -157,6 +157,20 @@ export function OfferWizard({ advertId, token, onDone, onNeedAuth }: Props) {
     );
   }
 
+  if (cfg.has_pending) {
+    return (
+      <div className="glass p-6 text-center">
+        <p className="text-brand-100">شما یک پیشنهاد در انتظار روی این آگهی دارید.</p>
+        <p className="mt-2 text-sm text-white/50">
+          تا پاسخ صاحب آگهی، پیشنهاد جدید ثبت نمی‌شود. وضعیت را در «پیشنهادهای من» ببینید.
+        </p>
+        <a href="/dashboard/offers" className="btn-primary mt-4 inline-block text-sm">
+          پیشنهادهای من
+        </a>
+      </div>
+    );
+  }
+
   const effectiveEuro =
     mode === "custom"
       ? Number(String(euroAmount).replace(/\D/g, "")) || cfg.advert_euro_amount

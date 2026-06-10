@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { ExternalLink, RefreshCw } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
@@ -42,6 +43,11 @@ export function ChannelMembershipBanner({ token }: Props) {
     <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm text-amber-100">
       <p>{status.message || "برای ثبت آگهی باید عضو کانال باشید."}</p>
       <div className="mt-3 flex flex-wrap gap-2">
+        {status.reason === "web_only" && (
+          <Link href="/dashboard/profile" className="btn-ghost inline-flex py-1.5 text-xs text-amber-100">
+            راهنمای اتصال تلگرام
+          </Link>
+        )}
         {status.channel_url && (
           <a
             href={status.channel_url}

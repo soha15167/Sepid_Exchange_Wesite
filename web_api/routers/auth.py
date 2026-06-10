@@ -18,6 +18,7 @@ from database.web_auth import (
     validate_display_name,
     verify_auth_challenge,
     verify_password,
+    user_self_profile,
 )
 from utils.sms import is_otp_code_valid, otp_checked_via_twilio_verify, send_verification_sms, try_send_verification_sms
 from utils.validators import is_valid_email, is_valid_phone, phone_starts_with_plus
@@ -45,6 +46,15 @@ class LinkPasswordRequest(BaseModel):
     challenge_id: str
     otp_code: str = Field(..., min_length=4, max_length=8)
     password: str = Field(..., min_length=6, max_length=128)
+
+
+class ProfilePatchRequest(BaseModel):
+    display_name: str | None = Field(default=None, min_length=2, max_length=40)
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(..., min_length=6, max_length=128)
+    new_password: str = Field(..., min_length=6, max_length=128)
 
 
 def _login_kind(login: str) -> str:
@@ -291,4 +301,35 @@ def auth_login_otp(body: OtpLoginRequest):
 
 @router.get("/me")
 def auth_me(user: dict = Depends(get_current_user)):
-    return {"user": user_public_profile(user)}
+    return {"user": user_self_profile(user)}
+
+
+@router.patch("/me")
+def auth_me_patch(body: ProfilePatchRequest, user: dict = Depends(get_current_user)):
+    uid = int(user["telegram_id"])
+    if body.display_name is not None:
+        dn = body.display_name.strip()
+        current_dn = (user.get("display_name") or "").strip()
+        if dn != current_dn:
+            err = validate_display_name(dn)
+            if err:
+                raise HTTPException(status_code=400, detail=err)
+        if not update_user_field(uid, "display_name", dn):
+            raise HTTPException(status_code=400, detail="ذخیره نام نمایشی ناموفق.")
+    fresh = get_user(uid)
+    if not fresh:
+        raise HTTPException(status_code=404, detail="کاربر یافت نشد.")
+    return {"ok": True, "user": user_self_profile(fresh)}
+
+
+@router.post("/me/password")
+def auth_change_password(body: PasswordChangeRequest, user: dict = Depends(get_current_user)):
+    uid = int(user["telegram_id"])
+    full = get_user(uid)
+    if not full or not full.get("password_hash"):
+        raise HTTPException(status_code=400, detail="رمز عبور برای این حساب تنظیم نشده.")
+    if not verify_password(body.current_password, full.get("password_hash")):
+        raise HTTPException(status_code=400, detail="رمز فعلی اشتباه است.")
+    if not set_user_password(uid, body.new_password):
+        raise HTTPException(status_code=400, detail="ذخیره رمز جدید ناموفق.")
+    return {"ok": True}

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Check, ExternalLink, MessageCircle, X } from "lucide-react";
-import { apiFetch, type DealStatus } from "@/lib/api";
+import { apiFetch, apiUpload, type DealStatus } from "@/lib/api";
 
 type Props = {
   offerId: number;
@@ -15,6 +15,7 @@ type Props = {
 
 export function DealGatePanel({ offerId, deal, token, onChange, compact }: Props) {
   const [accountText, setAccountText] = useState("");
+  const [receiptText, setReceiptText] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
@@ -56,7 +57,44 @@ export function DealGatePanel({ offerId, deal, token, onChange, compact }: Props
     }
   }
 
+  async function submitReceipt() {
+    if (!token || receiptText.trim().length < 2) return;
+    setBusy(true);
+    setErr("");
+    try {
+      await apiFetch(`/api/deals/${offerId}/receipts`, {
+        method: "POST",
+        body: JSON.stringify({ text: receiptText.trim() }),
+      }, token);
+      setReceiptText("");
+      onChange();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "خطا");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitReceiptPhoto(file: File | null) {
+    if (!token || !file) return;
+    setBusy(true);
+    setErr("");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      if (receiptText.trim()) form.append("caption", receiptText.trim());
+      await apiUpload(`/api/deals/${offerId}/receipts/photo`, form, token);
+      setReceiptText("");
+      onChange();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "خطا");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const g = deal.gate;
+  const receiptLabel = deal.receipt_kind === "euro" ? "فیش یورو" : "فیش واریز تومان";
 
   return (
     <div className={`rounded-xl border border-brand-400/20 bg-brand-500/10 text-sm ${compact ? "mt-3 p-3" : "mt-4 p-4"}`}>
@@ -119,19 +157,58 @@ export function DealGatePanel({ offerId, deal, token, onChange, compact }: Props
         </div>
       )}
 
+      {deal.can_submit_receipt && (
+        <div className="mt-3 space-y-2">
+          <p className="text-xs text-white/55">
+            {receiptLabel} — متن یا تصویر (چند فیش مجاز):
+          </p>
+          <textarea
+            className="input-field min-h-[72px] text-sm"
+            value={receiptText}
+            onChange={(e) => setReceiptText(e.target.value)}
+            placeholder="توضیح فیش (اختیاری برای عکس)"
+          />
+          <button
+            type="button"
+            disabled={busy || receiptText.trim().length < 2}
+            onClick={submitReceipt}
+            className="btn-primary w-full py-2 text-xs disabled:opacity-50"
+          >
+            ارسال فیش متنی
+          </button>
+          <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-xs text-white/70 hover:bg-white/5">
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              disabled={busy}
+              onChange={(e) => submitReceiptPhoto(e.target.files?.[0] ?? null)}
+            />
+            آپلود عکس فیش
+          </label>
+        </div>
+      )}
+
       {err && <p className="mt-2 text-xs text-red-300">{err}</p>}
 
-      {deal.telegram_required && !deal.can_respond && !deal.can_submit_account && (
-        <p className="mt-3 flex flex-wrap items-center gap-2 text-xs text-brand-200">
-          <MessageCircle className="h-4 w-4 shrink-0" />
-          {deal.telegram_hint || "ادامه از ربات تلگرام"}
+      {(deal.needs_telegram_handoff || (deal.telegram_required && !deal.can_respond && !deal.can_submit_account && !deal.can_submit_receipt)) && (
+        <div className="mt-3 rounded-lg border border-cyan-400/20 bg-cyan-500/10 p-3 text-xs text-cyan-100">
+          <p className="flex flex-wrap items-center gap-2">
+            <MessageCircle className="h-4 w-4 shrink-0" />
+            {deal.telegram_hint || "ادامه معامله از ربات تلگرام"}
+          </p>
           {deal.bot_link && (
-            <a href={deal.bot_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 underline">
+            <a
+              href={deal.bot_link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 inline-flex items-center gap-1 underline"
+            >
               باز کردن ربات
               <ExternalLink className="h-3 w-3" />
             </a>
           )}
-        </p>
+        </div>
       )}
     </div>
   );

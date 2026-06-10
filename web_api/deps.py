@@ -4,7 +4,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from config.settings import ADMIN_IDS
-from database.db import get_user
+from database.db import get_restriction_block_message, get_user
 from database.web_auth import is_web_account_complete
 from web_api.security import decode_access_token
 
@@ -28,6 +28,9 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="کاربر یافت نشد.")
     if not is_web_account_complete(user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="تکمیل حساب وب لازم است.")
+    block = get_restriction_block_message(uid)
+    if block:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=block)
     user["_is_admin"] = uid in set(ADMIN_IDS or [])
     return user
 

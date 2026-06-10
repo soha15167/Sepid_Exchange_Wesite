@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Check, X } from "lucide-react";
-import { apiFetch, fmtNum, type Offer } from "@/lib/api";
+import { apiFetch, fmtNum, type DealStatus, type Offer } from "@/lib/api";
 import { offerStatusLabel } from "@/components/IncomingOffersPanel";
+import { DealGatePanel } from "@/components/DealGatePanel";
+import { NegotiationPanel } from "@/components/NegotiationPanel";
 
 type Props = {
   advertId: number;
@@ -12,13 +15,30 @@ type Props = {
 
 export function OwnerOffersPanel({ advertId, token }: Props) {
   const [items, setItems] = useState<Offer[]>([]);
+  const [deals, setDeals] = useState<Record<number, DealStatus>>({});
   const [busy, setBusy] = useState<number | null>(null);
   const [err, setErr] = useState("");
 
   function reload() {
     if (!token) return;
     apiFetch<{ items: Offer[] }>(`/api/adverts/${advertId}/offers`, {}, token)
-      .then((d) => setItems(d.items))
+      .then(async (d) => {
+        setItems(d.items);
+        const gateItems = d.items.filter(
+          (o) => (o.status || "") === "accepted" || o.has_deal_gate,
+        );
+        const ds: Record<number, DealStatus> = {};
+        await Promise.all(
+          gateItems.map(async (o) => {
+            try {
+              ds[o.id] = await apiFetch<DealStatus>(`/api/deals/${o.id}`, {}, token);
+            } catch {
+              /* ignore */
+            }
+          }),
+        );
+        setDeals(ds);
+      })
       .catch((e) => setErr(e.message));
   }
 
@@ -52,6 +72,8 @@ export function OwnerOffersPanel({ advertId, token }: Props) {
         <ul className="space-y-3">
           {items.map((o) => {
             const isPending = (o.status || "pending") === "pending";
+            const isAccepted = (o.status || "") === "accepted";
+            const deal = deals[o.id];
             return (
               <li key={o.id} className="rounded-xl border border-white/10 bg-white/5 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -92,7 +114,18 @@ export function OwnerOffersPanel({ advertId, token }: Props) {
                       </button>
                     </div>
                   )}
+                  {isAccepted && !deal && (
+                    <Link href={`/dashboard/deals/${o.id}`} className="text-xs text-brand-200 underline">
+                      تأیید نهایی
+                    </Link>
+                  )}
                 </div>
+                {isPending && (
+                  <NegotiationPanel offerId={o.id} token={token} />
+                )}
+                {deal?.gate?.active && (
+                  <DealGatePanel offerId={o.id} deal={deal} token={token} onChange={reload} compact />
+                )}
               </li>
             );
           })}

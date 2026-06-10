@@ -24,6 +24,22 @@ export async function apiFetch<T>(
   return data as T;
 }
 
+export async function apiUpload<T>(
+  path: string,
+  form: FormData,
+  token?: string | null,
+): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(path, { method: "POST", body: form, headers });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = (data as { detail?: string }).detail;
+    throw new Error(typeof detail === "string" ? detail : "خطا در آپلود");
+  }
+  return data as T;
+}
+
 export type Advert = {
   id: number;
   owner_id?: number;
@@ -90,6 +106,9 @@ export type DealStatus = {
   my_response?: string | null;
   can_respond?: boolean;
   can_submit_account?: boolean;
+  can_submit_receipt?: boolean;
+  receipt_kind?: "toman" | "euro" | null;
+  needs_telegram_handoff?: boolean;
   bot_link?: string | null;
   gate: {
     active: boolean;
