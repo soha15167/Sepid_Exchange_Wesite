@@ -1271,7 +1271,16 @@ def update_euro_advert_field_for_owner(
     skip_active_offer_guard: bool = False,
 ) -> bool:
     allowed = frozenset(
-        {"euro_amount", "rate_toman", "description", "methods", "account_country", "instant_transfer"}
+        {
+            "euro_amount",
+            "rate_toman",
+            "description",
+            "methods",
+            "account_country",
+            "instant_transfer",
+            "city_ir",
+            "city_int",
+        }
     )
     if field not in allowed:
         return False
@@ -1633,6 +1642,15 @@ def _pending_offer_status_sql(alias: str = "o") -> str:
     )
 
 
+def _owner_inbox_offer_status_sql(alias: str = "o") -> str:
+    """پیشنهادهای pending یا accepted روی آگهی‌های صاحب — برای داشبورد وب."""
+    a = alias
+    return (
+        f"coalesce(lower(trim(cast({a}.status as text))), 'pending') "
+        f"IN ('pending', 'accepted')"
+    )
+
+
 def list_my_pending_offers_all(
     proposer_telegram_id: int, limit: int = LIST_RECENT_LIMIT
 ) -> list[dict]:
@@ -1707,7 +1725,7 @@ def list_incoming_pending_offers_for_advert_owner(
     with sqlite3.connect(DB_PATH) as conn:
         cur = conn.cursor()
         acols = _table_columns(conn, "advert_offers")
-        st_wh = _pending_offer_status_sql("o") if "status" in acols else "1"
+        st_wh = _owner_inbox_offer_status_sql("o") if "status" in acols else "1"
         seq_expr = "COALESCE(seq_in_advert, id)" if "seq_in_advert" in acols else "id"
         rows = cur.execute(
             f"""

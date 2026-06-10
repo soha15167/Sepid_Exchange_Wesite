@@ -20,9 +20,9 @@ from database.web_auth import (
     verify_password,
 )
 from utils.sms import is_otp_code_valid, otp_checked_via_twilio_verify, send_verification_sms, try_send_verification_sms
-from utils.validators import is_valid_email, is_valid_phone
+from utils.validators import is_valid_email, is_valid_phone, phone_starts_with_plus
 from web_api.deps import get_current_user
-from web_api.schemas import LoginRequest, LookupRequest, OtpSendRequest, OtpVerifyRequest
+from web_api.schemas import LoginRequest, LookupRequest, OtpLoginRequest, OtpSendRequest, OtpVerifyRequest
 from web_api.security import create_access_token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -53,7 +53,13 @@ def _login_kind(login: str) -> str:
 
 @router.post("/lookup")
 def auth_lookup(body: LookupRequest):
-    user = find_user_by_login(body.login)
+    login = (body.login or "").strip()
+    if login and "@" not in login and not phone_starts_with_plus(login):
+        raise HTTPException(
+            status_code=400,
+            detail="شماره موبایل باید با + شروع شود. مثال: +989121234567",
+        )
+    user = find_user_by_login(login)
     if not user:
         return {
             "status": "new_user",
@@ -94,12 +100,21 @@ def auth_otp_send(body: OtpSendRequest):
             )
     else:
         phone = normalize_lookup_phone(login)
+        if not phone_starts_with_plus(login):
+            raise HTTPException(
+                status_code=400,
+                detail="شماره موبایل باید با + شروع شود. مثال: +989121234567",
+            )
         if not is_valid_phone(phone):
             raise HTTPException(status_code=400, detail="شماره موبایل نامعتبر است (+989...).")
 
     purpose = (body.purpose or "login").strip()
     if purpose not in ("login", "register", "link"):
         purpose = "login"
+
+    if purpose == "login":
+        if not user or not is_web_account_complete(user):
+            raise HTTPException(status_code=400, detail="حساب وب فعال یافت نشد — ابتدا ثبت‌نام کنید.")
 
     challenge_id, otp = create_auth_challenge(
         purpose=purpose,
@@ -186,6 +201,8 @@ def auth_register_after_otp(body: RegisterAfterOtpRequest):
         raise HTTPException(status_code=400, detail="پذیرش قوانین الزامی است.")
 
     phone = normalize_lookup_phone(body.phone_number)
+    if not phone_starts_with_plus(body.phone_number):
+        raise HTTPException(status_code=400, detail="شماره موبایل باید با + شروع شود.")
     if not is_valid_phone(phone):
         raise HTTPException(status_code=400, detail="شماره موبایل نامعتبر است.")
     if rec.get("phone_number") and rec.get("phone_number") != phone:
@@ -240,6 +257,33 @@ def auth_login(body: LoginRequest):
         raise HTTPException(status_code=401, detail="ورود نامعتبر.")
     if not verify_password(body.password, user.get("password_hash")):
         raise HTTPException(status_code=401, detail="ورود نامعتبر.")
+    tid = int(user["telegram_id"])
+    token = create_access_token(telegram_id=tid, is_admin=tid in set(ADMIN_IDS or []))
+    return {"ok": True, "access_token": token, "user": user_public_profile(user)}
+
+
+@router.post("/login-otp")
+def auth_login_otp(body: OtpLoginRequest):
+    """Returning web user: sign in with SMS code (email login sends SMS to registered phone)."""
+    rec = verify_auth_challenge(body.challenge_id, body.otp_code)
+    if not rec:
+        raise HTTPException(status_code=400, detail="کد نامعتبر یا منقضی شده.")
+    if rec.get("purpose") != "login":
+        raise HTTPException(status_code=400, detail="چالش ورود نامعتبر است.")
+
+    phone = rec.get("phone_number")
+    if phone and otp_checked_via_twilio_verify():
+        if not is_otp_code_valid(phone, body.otp_code):
+            raise HTTPException(status_code=400, detail="کد تأیید نامعتبر است.")
+
+    user = None
+    if rec.get("user_telegram_id") is not None:
+        user = get_user(int(rec["user_telegram_id"]))
+    if not user and phone:
+        user = find_user_by_phone(phone)
+    if not user or not is_web_account_complete(user):
+        raise HTTPException(status_code=401, detail="ورود نامعتبر.")
+
     tid = int(user["telegram_id"])
     token = create_access_token(telegram_id=tid, is_admin=tid in set(ADMIN_IDS or []))
     return {"ok": True, "access_token": token, "user": user_public_profile(user)}

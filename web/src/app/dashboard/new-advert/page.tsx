@@ -1,162 +1,147 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { apiFetch } from "@/lib/api";
+import clsx from "clsx";
+import { ArrowRight } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { EuroAdvertWizard } from "@/components/EuroAdvertWizard";
+import { ExchangeAdvertWizard } from "@/components/ExchangeAdvertWizard";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Rocket } from "lucide-react";
 
-const METHODS = ["حواله", "نقد", "کارت", "پی‌پال", "Wise", "Revolut"];
+type Kind = "euro_buy" | "euro_sell" | "exchange_buy" | "exchange_sell" | null;
+
+const KINDS: { id: Kind; title: string; desc: string; accent: string }[] = [
+  {
+    id: "euro_sell",
+    title: "فروش یورو",
+    desc: "IBAN · PayPal · Wise · Revolut",
+    accent: "hover:border-brand-400/40 hover:shadow-glow-sm",
+  },
+  {
+    id: "euro_buy",
+    title: "خرید یورو",
+    desc: "IBAN · PayPal · Wise · Revolut",
+    accent: "hover:border-accent-cyan/40 hover:shadow-glow-sm",
+  },
+  {
+    id: "exchange_sell",
+    title: "معاوضه — فروش",
+    desc: "یورو به یورو · بدون نرخ تومان",
+    accent: "hover:border-accent-violet/40",
+  },
+  {
+    id: "exchange_buy",
+    title: "معاوضه — خرید",
+    desc: "یورو به یورو · بدون نرخ تومان",
+    accent: "hover:border-accent-violet/40",
+  },
+];
 
 export default function NewAdvertPage() {
   const { token, user, loading } = useAuth();
   const router = useRouter();
-  const [form, setForm] = useState({
-    operation: "فروش",
-    euro_amount: "",
-    rate_toman: "",
-    description: "",
-    methods: [] as string[],
-    account_country: "",
-    instant_transfer: "unknown",
-  });
-  const [err, setErr] = useState("");
+  const [kind, setKind] = useState<Kind>(null);
+  const [success, setSuccess] = useState("");
 
-  if (!loading && !user) {
-    router.replace("/auth");
-  }
+  useEffect(() => {
+    if (!loading && !user) router.replace("/auth");
+  }, [loading, user, router]);
 
-  function toggleMethod(m: string) {
-    setForm((f) => ({
-      ...f,
-      methods: f.methods.includes(m) ? f.methods.filter((x) => x !== m) : [...f.methods, m],
-    }));
-  }
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setErr("");
-    try {
-      await apiFetch(
-        "/api/adverts",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            operation: form.operation,
-            euro_amount: Number(form.euro_amount.replace(/\D/g, "")),
-            rate_toman: Number(form.rate_toman.replace(/\D/g, "")),
-            description: form.description,
-            methods: form.methods,
-            account_country: form.account_country,
-            instant_transfer: form.operation === "فروش" ? form.instant_transfer : null,
-          }),
-        },
-        token,
-      );
-      router.push("/dashboard");
-    } catch (ex) {
-      setErr(ex instanceof Error ? ex.message : "خطا");
-    }
-  }
+  if (loading || !user) return <p className="text-white/50">...</p>;
 
   return (
-    <div className="mx-auto max-w-2xl">
-      <form onSubmit={submit} className="glass space-y-5 p-6 sm:p-8">
-        <h1 className="text-2xl font-bold">ثبت آگهی جدید</h1>
-        <p className="text-sm text-white/50">پس از تأیید، آگهی در کانال تلگرام منتشر می‌شود.</p>
+    <div className="mx-auto w-full min-w-0 max-w-2xl space-y-6">
+      <Link href="/dashboard" className="btn-ghost inline-flex gap-2 py-2 text-sm">
+        <ArrowRight className="h-4 w-4" />
+        داشبورد
+      </Link>
 
-        <div>
-          <label className="label-text">نوع</label>
-          <select
-            className="input-field"
-            value={form.operation}
-            onChange={(e) => setForm({ ...form, operation: e.target.value })}
-          >
-            <option value="فروش">فروش یورو</option>
-            <option value="خرید">خرید یورو</option>
-          </select>
+      {success && (
+        <div className="rounded-xl border border-brand-400/30 bg-brand-500/10 p-4 text-brand-100">
+          {success}
+          <Link href="/dashboard" className="mt-2 block text-sm underline">
+            بازگشت به داشبورد
+          </Link>
         </div>
+      )}
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <label className="label-text">مقدار یورو</label>
-            <input
-              className="input-field"
-              value={form.euro_amount}
-              onChange={(e) => setForm({ ...form, euro_amount: e.target.value })}
-              required
-            />
-          </div>
-          <div>
-            <label className="label-text">نرخ (تومان)</label>
-            <input
-              className="input-field"
-              value={form.rate_toman}
-              onChange={(e) => setForm({ ...form, rate_toman: e.target.value })}
-              required
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="label-text">کشور حساب</label>
-          <input
-            className="input-field"
-            value={form.account_country}
-            onChange={(e) => setForm({ ...form, account_country: e.target.value })}
-            required
+      {!kind && !success && (
+        <div className="bento-card space-y-5 p-4 sm:p-6 lg:p-8">
+          <PageHeader
+            badge="درخواست خدمات"
+            badgeIcon={Rocket}
+            title="ثبت آگهی جدید"
+            subtitle="مرحله‌به‌مرحله مثل ربات — با پیش‌نمایش قبل از انتشار در کانال"
+            className="mb-0"
           />
-        </div>
-
-        {form.operation === "فروش" && (
-          <div>
-            <label className="label-text">واریز آنی</label>
-            <select
-              className="input-field"
-              value={form.instant_transfer}
-              onChange={(e) => setForm({ ...form, instant_transfer: e.target.value })}
-            >
-              <option value="have">دارم</option>
-              <option value="dont_have">ندارم</option>
-              <option value="unknown">اطلاعی ندارم</option>
-            </select>
-          </div>
-        )}
-
-        <div>
-          <label className="label-text">روش پرداخت / دریافت</label>
-          <div className="flex flex-wrap gap-2">
-            {METHODS.map((m) => (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {KINDS.map((k) => (
               <button
-                key={m}
+                key={k.id}
                 type="button"
-                onClick={() => toggleMethod(m)}
-                className={
-                  form.methods.includes(m)
-                    ? "rounded-lg bg-brand-500/30 px-3 py-1.5 text-sm text-brand-100"
-                    : "rounded-lg border border-white/10 px-3 py-1.5 text-sm text-white/60"
-                }
+                onClick={() => setKind(k.id)}
+                className={clsx(
+                  "group rounded-xl border border-white/[0.08] bg-ink-950/50 p-5 text-start transition duration-300",
+                  k.accent,
+                )}
               >
-                {m}
+                <p className="font-bold text-white">{k.title}</p>
+                <p className="mt-1.5 text-xs leading-6 text-white/45">{k.desc}</p>
               </button>
             ))}
           </div>
         </div>
+      )}
 
-        <div>
-          <label className="label-text">توضیحات</label>
-          <textarea
-            className="input-field min-h-[120px]"
-            value={form.description}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
-            required
-          />
-        </div>
+      {kind === "euro_buy" && !success && (
+        <EuroAdvertWizard
+          operation="خرید"
+          token={token}
+          onDone={(msg) => {
+            setSuccess(msg);
+            setKind(null);
+          }}
+        />
+      )}
+      {kind === "euro_sell" && !success && (
+        <EuroAdvertWizard
+          operation="فروش"
+          token={token}
+          onDone={(msg) => {
+            setSuccess(msg);
+            setKind(null);
+          }}
+        />
+      )}
+      {kind === "exchange_buy" && !success && (
+        <ExchangeAdvertWizard
+          side="خرید"
+          token={token}
+          onDone={(msg) => {
+            setSuccess(msg);
+            setKind(null);
+          }}
+        />
+      )}
+      {kind === "exchange_sell" && !success && (
+        <ExchangeAdvertWizard
+          side="فروش"
+          token={token}
+          onDone={(msg) => {
+            setSuccess(msg);
+            setKind(null);
+          }}
+        />
+      )}
 
-        {err && <p className="text-sm text-red-300">{err}</p>}
-        <button type="submit" className="btn-primary w-full">
-          انتشار در کانال
+      {kind && !success && (
+        <button type="button" onClick={() => setKind(null)} className="btn-ghost w-full text-sm">
+          تغییر نوع آگهی
         </button>
-      </form>
+      )}
     </div>
   );
 }

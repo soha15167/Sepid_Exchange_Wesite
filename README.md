@@ -1,13 +1,13 @@
-# Sepid Exchange Bot
+# Sepid Exchange Website
 
 <p align="center">
-  <strong>EN:</strong> Official Telegram bot for <a href="https://t.me/Sepid_Exchange">@Sepid_Exchange</a> channel<br/>
-  <strong>FA:</strong> ربات رسمی کانال <a href="https://t.me/Sepid_Exchange">@Sepid_Exchange</a><br/>
-  <a href="https://t.me/Sepid_Group_Bot">@Sepid_Group_Bot</a>
+  <strong>EN:</strong> Web companion for <a href="https://t.me/Sepid_Exchange">@Sepid_Exchange</a> — same DB and business rules as the Telegram bot<br/>
+  <strong>FA:</strong> مکمل وب کانال <a href="https://t.me/Sepid_Exchange">@Sepid_Exchange</a> — همان دیتابیس و قوانین ربات<br/>
+  <a href="https://github.com/soha15167/Sepid_Exchange_Bot">Telegram bot repo</a> · <a href="https://t.me/Sepid_Group_Bot">@Sepid_Group_Bot</a>
 </p>
 
-> **EN:** Docs and code use English + Persian. Search code: `Section` or `بخش`.  
-> **FA:** مستندات و کد به دو زبان انگلیسی و فارسی است. در کد: `Section` یا `بخش`. فلو واریز: [docs/DEAL_GATE.md](docs/DEAL_GATE.md)
+> **EN:** Bilingual docs (English + Persian). Code search: `Section` or `بخش`. Deal flow: [docs/DEAL_GATE.md](docs/DEAL_GATE.md) · Web details: [docs/WEB_COMPANION.md](docs/WEB_COMPANION.md)  
+> **FA:** مستندات دو زبانه. فلو معامله: [docs/DEAL_GATE.md](docs/DEAL_GATE.md) · راهنمای وب: [docs/WEB_COMPANION.md](docs/WEB_COMPANION.md)
 
 ---
 
@@ -16,15 +16,15 @@
 | # | EN | FA |
 |---|----|----|
 | 1 | [Introduction](#introduction--معرفی) | معرفی |
-| 2 | [Tech stack](#tech-stack--زبان‌ها-و-فناوری) | زبان‌ها و فناوری |
+| 2 | [Tech stack](#tech-stack--زبان‌ها-و-فناوری) | فناوری |
 | 3 | [Features](#features--قابلیت‌ها) | قابلیت‌ها |
 | 4 | [Architecture](#architecture--معماری) | معماری |
-| 5 | [Deal Gate flow](#deal-gate-flow--فلو-معامله) | فلو معامله |
-| 6 | [Project structure](#project-structure--ساختار-پروژه) | ساختار |
-| 7 | [Install & run](#install--run--نصب-و-اجرا) | نصب |
-| 8 | [Deploy](#deploy--دیپلوی) | دیپلوی |
-| 9 | [Code docs](#code-documentation--مستندات-کد) | مستندات کد |
-| 10 | [Security](#security--امنیت) | امنیت |
+| 5 | [Project structure](#project-structure--ساختار-پروژه) | ساختار |
+| 6 | [Install & run](#install--run--نصب-و-اجرا) | نصب |
+| 7 | [Deploy](#deploy--دیپلوی) | دیپلوی |
+| 8 | [API overview](#api-overview--خلاصه-api) | API |
+| 9 | [Security](#security--امنیت) | امنیت |
+| 10 | [Related repos](#related-repos--ریپوهای-مرتبط) | ریپوها |
 
 ---
 
@@ -32,45 +32,38 @@
 
 ### English
 
-This bot runs **Sepid Exchange**: SMS registration, euro buy/sell channel ads, offers on posts, and after acceptance a **Deal Gate** (final OK, accounts, staged Toman/Euro payments with admin).
+**Sepid Exchange Website** is the browser companion to the official Telegram bot. Users can register, post euro buy/sell and exchange ads, browse the channel catalogue, submit offers, and continue **Deal Gate** steps (final confirmation, bank accounts) from the dashboard. Admins get a web panel mirroring the bot admin menu.
+
+The stack shares **one SQLite database** and **one `.env`** with the bot. Publishing an ad from the web posts to the same Telegram channel; offers and deal gates behave like the bot.
 
 ### فارسی
 
-این ربات **سپید اکسچنج** را اجرا می‌کند: ثبت‌نام با پیامک، آگهی خرید و فروش یورو در کانال، پیشنهاد روی پست‌ها، و بعد از پذیرش پیشنهاد **دروازه معامله** برای تأیید نهایی، دریافت حساب، و هماهنگی واریز تومان و یورو با ادمین.
+**وب سپید اکسچنج** مکمل مرورگری ربات رسمی است: ثبت‌نام، ثبت آگهی خرید/فروش/معاوضه یورو، مرور آگهی‌های کانال، پیشنهاد، و ادامه **دروازه معامله** (تأیید نهایی، حساب بانکی) از داشبورد. ادمین‌ها پنل وب با همان منوی ربات دارند.
+
+وب و ربات **یک دیتابیس** و **یک `.env`** مشترک دارند. انتشار آگهی از وب همان کانال تلگرام را به‌روز می‌کند؛ پیشنهادها و gate مثل ربات عمل می‌کنند.
 
 ---
 
 ## Tech stack | زبان‌ها و فناوری
 
-### English
+| Layer | EN | FA | Path |
+|-------|----|----|------|
+| UI | Next.js 14, React 18, Tailwind | رابط کاربری | `web/` |
+| API | FastAPI, Uvicorn, JWT | API وب | `web_api/` |
+| Business | Python services (shared with bot) | منطق مشترک | `services/` |
+| DB | SQLite via `database/db.py` | دیتابیس | `database/` |
+| Bot runtime | python-telegram-bot (unchanged) | ربات | `main.py`, `handlers/` |
 
-Almost the entire project is **Python 3.10+**. There is no separate web frontend (no React/Node for the bot).
+**Ports (production):**
 
-| Kind | Role | Examples |
-|------|------|----------|
-| Language | Python 3.10+ | `main.py`, `handlers/`, `database/`, `utils/` |
-| Docs | Markdown | `README.md`, `docs/` |
-| Database | SQLite (SQL in Python) | `database/db.py` |
-| Config | `.env` (not in git) | `.env.sepid.example` |
+| Service | Port | systemd unit |
+|---------|------|----------------|
+| Web API | **8100** | `sepid-web-api` |
+| Web UI | **3100** | `sepid-web-ui` |
+| Telegram bot | — | `telegram-bot` (separate process) |
 
-**Main libraries:** `python-telegram-bot`, `python-dotenv`, `twilio`.  
-**Optional:** Pillow, OpenCV, pydantic (receipt/OCR).  
-**Not used in the bot core:** JavaScript, TypeScript, Java, C#, PHP, Go.
-
-### فارسی
-
-تقریباً همهٔ پروژه با **پایتون ۳.۱۰ به بالا** نوشته شده است. رابط وب جدا (مثل React) برای خود ربات نداریم.
-
-| مورد | نقش | نمونه در پروژه |
-|------|-----|----------------|
-| زبان | پایتون | `main.py`، پوشهٔ `handlers/`، `database/` |
-| مستندات | مارک‌داون | `README.md`، پوشهٔ `docs/` |
-| دیتابیس | SQLite | فایل `database/db.py` |
-| تنظیمات | فایل `.env` | فقط روی سرور؛ داخل گیت نیست |
-
-**کتابخانه‌های اصلی:** اتصال به تلگرام (`python-telegram-bot`)، خواندن `.env`، ارسال پیامک ثبت‌نام (`twilio`).  
-**اختیاری:** Pillow و OpenCV برای تشخیص متن/عکس فیش.  
-**در هستهٔ ربات به کار نرفته:** جاوااسکریپت، جاوا، PHP، Go و مشابه آن‌ها.
+**Main Python libs (API):** `fastapi`, `uvicorn`, `python-jose`, `bcrypt` — see [requirements-web.txt](requirements-web.txt).  
+**Main Node libs:** `next`, `react`, `tailwindcss` — see [web/package.json](web/package.json).
 
 ---
 
@@ -78,293 +71,225 @@ Almost the entire project is **Python 3.10+**. There is no separate web frontend
 
 | Area | EN | FA |
 |------|----|----|
-| Registration | Name, mobile, OTP, channel rules | نام، موبایل، OTP، قوانین |
-| Euro ads | Buy/sell, Toman rate, fees, channel post | خرید/فروش، نرخ، کارمزد، کانال |
-| Exchange | Euro-to-Euro ads | معاوضه یورو |
-| Offers | Gate, rate, country, negotiation | پیشنهاد، نرخ، مذاکره |
-| Deal Gate | Final OK, accounts, receipts, settlement | تأیید نهایی، حساب، فیش، نشست |
-| Admin | Users, ads, deals, bank cards, message log | کاربران، آگهی، معامله، کارت |
-| Bonbast | Daily rate post (optional) | نرخ روزانه بن‌بست |
-| Iran panel | `/txin` `/txout` sync (admin) | همگام تراکنش |
+| Auth | Phone/email OTP, password login, link existing bot user | OTP، ورود، اتصال کاربر ربات |
+| Adverts | Euro buy/sell wizard, exchange wizard, channel publish | ویزارد آگهی، انتشار کانال |
+| Channel gate | Must join `@Sepid_Exchange` before publish | عضویت کانال قبل از ثبت |
+| Offers | Submit, edit rate, withdraw; owner accept/reject | پیشنهاد، پذیرش/رد |
+| Deal Gate (web) | Party yes/no, account text; receipts still in bot | تأیید نهایی و حساب در وب |
+| Public UI | Advert cards with public offers (channel parity) | پیشنهادهای عمومی روی کارت |
+| Admin web | Users, adverts, offers, negotiations, deal list, proxy offer, Bonbast, bot restart | پنل ادمین |
+| Mobile | Responsive layout, 16px inputs (no iOS zoom) | موبایل |
 
 ---
 
 ## Architecture | معماری
 
 ```mermaid
-flowchart LR
-    subgraph users ["Users | کاربران"]
-        U1["Buyer / Seller | خریدار فروشنده"]
-        U2["Admin | ادمین"]
+flowchart TB
+    subgraph browser ["Browser | مرورگر"]
+        UI["Next.js UI :3100"]
     end
-    subgraph bot ["Python bot | ربات"]
-        M["main.py"]
-        H["handlers"]
-        D[("database/db.py")]
-        S["state.py"]
+    subgraph server ["Server | سرور"]
+        API["FastAPI :8100"]
+        BOT["Telegram bot main.py"]
+        DB[("eurobot.db")]
+        SVC["services/"]
     end
-    subgraph external ["External | خارجی"]
-        CH["Channel Sepid_Exchange"]
-        TW["Twilio SMS"]
+    subgraph tg ["Telegram"]
+        CH["@Sepid_Exchange channel"]
     end
-    U1 --> M
-    U2 --> M
-    M --> H
-    H --> D
-    H --> S
-    H --> CH
-    H --> TW
+    UI -->|"/api/* proxy"| API
+    API --> SVC
+    BOT --> SVC
+    SVC --> DB
+    API -->|publish / notify| CH
+    BOT --> CH
 ```
 
-| Layer | EN | FA | File |
-|-------|----|----|------|
-| Entry | Application, handler groups, jobs | ورود، گروه هندلر | `main.py` |
-| State | `UserState` per user step | مرحله کاربر | `models/enums.py` |
-| Session | Draft data in memory | پیش‌نویس موقت | `state.py` |
-| DB | SQLite persistence | پایگاه داده | `database/db.py` |
-| UI | Menus | منوها | `keyboards/` |
+**EN:** The UI calls `/api/*` (proxied to port 8100 in dev/production). The API imports bot modules for publishing, offers, and deal gate — no duplicate business logic.
 
-### Handler groups | گروه‌های هندلر
-
-| Group | EN | FA |
-|-------|----|----|
-| -1 | Registration / restrictions | ثبت‌نام / محدودیت |
-| 0 | Deal gate receipts & accounts (high priority) | فیش و حساب معامله |
-| 1 | Ad/offer wizard text | ویزارد آگهی/پیشنهاد |
-| 6 | Euro flow | فلو یورو |
-| 8 | Admin router | پنل ادمین |
-
----
-
-## Deal Gate flow | فلو معامله
-
-**EN:** After the ad owner **accepts** an offer, `start_deal_final_gate` runs. Full callbacks and DB columns: **[docs/DEAL_GATE.md](docs/DEAL_GATE.md)** (bilingual).
-
-**FA:** پس از **پذیرش** پیشنهاد، `start_deal_final_gate` اجرا می‌شود. callbackها و ستون‌های DB: **[docs/DEAL_GATE.md](docs/DEAL_GATE.md)**.
-
-### Summary diagram | خلاصه فلو
-
-```mermaid
-sequenceDiagram
-    participant O as Owner | صاحب
-    participant B as Buyer EUR | خریدار
-    participant S as Seller EUR | فروشنده
-    participant Bot as Bot | ربات
-    participant A as Admin | ادمین
-
-    O->>Bot: Accept offer | پذیرش
-    Bot->>B: Final OK? | تأیید نهایی
-    Bot->>S: Final OK?
-    B->>Bot: Yes + account | بله + حساب
-    S->>Bot: Yes + account
-    Bot->>A: Main deal message | پیام معامله
-
-    A->>Bot: Toman card to buyer | کارت تومان
-    B->>Bot: Toman receipt | فیش تومان
-    A->>Bot: Toman settled | تومان نشست
-    Bot->>S: Buyer EUR account | حساب یورو
-
-    S->>Bot: Euro receipt | فیش یورو
-    Bot->>B: Confirm landed | یورو نشست
-    B->>Bot: Confirmed
-    Bot->>S: Notify | اعلان
-    A->>Bot: Toman receipt to seller | فیش به فروشنده
-```
-
-### Buy vs sell ads | آگهی خرید و فروش
-
-**EN:** `buyer_telegram_id` / `seller_telegram_id` are fixed per offer via `_offer_buyer_seller_telegram_ids`; only financial labels depend on `operation` (خرید/فروش).
-
-**FA:** نقش خریدار/فروشنده یورو با `_offer_buyer_seller_telegram_ids` ثابت است؛ فقط متن مالی از `operation` آگهی محاسبه می‌شود.
-
-### Related files | فایل‌های مرتبط
-
-| File | EN | FA |
-|------|----|----|
-| `handlers/deal_gate.py` | Gate + admin payments | دروازه + واریز |
-| `handlers/offers.py` | Admin HTML message | پیام ادمین |
-| `database/db.py` | `offer_deal_gates` | جدول gate |
-| `utils/deal_outbound.py` | Outbound message log | لاگ پیام |
-| `main.py` | Routers & callbacks | مسیریابی |
+**FA:** UI به `/api` درخواست می‌زند. API ماژول‌های ربات را import می‌کند تا منطق تکراری نباشد.
 
 ---
 
 ## Project structure | ساختار پروژه
 
 ```text
-telegram_bot_project2/
-├── main.py              # EN: entry | FA: ورود
-├── config/settings.py   # EN: .env | FA: تنظیمات
-├── database/db.py       # EN: SQLite | FA: دیتابیس
-├── handlers/
-│   ├── deal_gate.py     # EN: deal gate | FA: دروازه معامله ★
-│   ├── offers.py        # EN: offers | FA: پیشنهاد
-│   └── ...
+Sepid_Exchange_Wesite/          # this repo | همین ریپو
+├── web/                        # Next.js UI → deploy to /root/web
+│   └── src/
+│       ├── app/                # pages (dashboard, auth, adverts, admin)
+│       └── components/         # wizards, DealGatePanel, AdminPanel
+├── web_api/                    # FastAPI → runs beside bot
+│   ├── main.py
+│   └── routers/                # auth, adverts, offers, admin, info
+├── services/                   # shared business logic
+│   ├── advert_publish.py
+│   ├── deal_gate_web.py
+│   ├── channel_membership_web.py
+│   └── admin_web.py
+├── database/                   # SQLite + web_auth.py
+├── handlers/                   # bot handlers (API reuses deal_gate, offers)
+├── deploy/                     # systemd + nginx example
+│   ├── sepid-web-api.service
+│   ├── sepid-web-ui.service
+│   └── nginx-sepid.conf
 ├── docs/
-│   ├── CODE_OVERVIEW.md # EN+FA code map
-│   └── DEAL_GATE.md     # EN+FA payment flow ★
-└── scripts/
+│   ├── WEB_COMPANION.md
+│   ├── DEAL_GATE.md
+│   └── BOT_README.md           # full bot documentation
+├── scripts/
+│   ├── run_web_api.py
+│   └── server_start_web.sh
+├── requirements-web.txt
+└── .env.sepid.example          # copy to .env on server
 ```
 
 ---
 
 ## Install & run | نصب و اجرا
 
-**EN:** Python 3.10+, BotFather token, bot as **channel admin**, Twilio for OTP.
+### English
 
-**FA:** پایتون ۳.۱۰+، توکن ربات، ربات **ادمین کانال**، Twilio برای OTP.
+**Requirements:** Python 3.10+, Node 18+, running bot `.env` with `BOT_TOKEN`, `ADVERT_CHANNEL_ID`, Twilio (OTP), `WEB_JWT_SECRET`.
+
+**FA:** پایتون ۳.۱۰+، Node ۱۸+، فایل `.env` ربات با توکن و Twilio.
 
 ```bash
-git clone https://github.com/soha15167/Sepid_Exchange_Bot.git
-cd Sepid_Exchange_Bot
+git clone https://github.com/soha15167/Sepid_Exchange_Wesite.git
+cd Sepid_Exchange_Wesite
+
+# Python API (use same venv as bot or create one)
 python -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.sepid.example .env
+pip install -r requirements-web.txt
+cp .env.sepid.example .env        # edit tokens / secrets
+
+# Database schema (safe with bot running)
+python -c "from database.db import ensure_schema; ensure_schema()"
+
+# API
+python scripts/run_web_api.py     # http://127.0.0.1:8100/api/health
+
+# UI
+cd web
+npm install
+npm run dev                       # http://127.0.0.1:3100
 ```
+
+### Key env variables | متغیرهای مهم
 
 | Variable | EN | FA |
 |----------|----|----|
-| `BOT_TOKEN` | Bot token | توکن |
-| `ADVERT_CHANNEL_ID` | Channel id `-100…` | شناسه کانال |
-| `ADMIN_IDS` | Admin Telegram ids | ادمین |
-| `BANK_CARDS` | Toman deposit cards text | کارت‌های واریز |
-| `DATABASE_NAME` | Path to `eurobot.db` | مسیر DB |
+| `BOT_TOKEN` | Telegram bot (publish + deal notifications) | توکن ربات |
+| `ADVERT_CHANNEL_ID` | Channel for ads + membership check | کانال آگهی |
+| `WEB_JWT_SECRET` | JWT signing secret | رمز JWT |
+| `WEB_API_PORT` | Default `8100` | پورت API |
+| `WEB_DEV_OTP_IN_RESPONSE` | Dev: return OTP in JSON | OTP در پاسخ dev |
+| `WEB_FRONTEND_URL` | CORS / links | آدرس فرانت |
+| `BOT_RESTART_COMMAND` | Admin web restart (optional) | ری‌استارت ربات |
 
-```bash
-python scripts/init_fresh_database.py   # fresh DB | دیتابیس تازه
-python main.py                            # run | اجرا
-python -c "from database.db import ensure_schema; ensure_schema()"  # after deploy
-```
+See also [docs/WEB_COMPANION.md](docs/WEB_COMPANION.md).
 
 ---
 
 ## Deploy | دیپلوی
 
-سرور نمونه: `root@49.13.132.230` — مسیر: `/root/telegram_bot_project2`
+**Server example:** `root@49.13.132.230`
 
-### English — How updates reach the server
+| Path | Role |
+|------|------|
+| `/root/telegram_bot_project2` | Bot + API + DB + `.env` |
+| `/root/web` | Next.js build (UI only) |
 
-| Method | When to use |
-|--------|-------------|
-| **SCP** | Your server folder was copied manually (no `.git`) — **this is your case if `git pull` fails** |
-| **Git pull** | After you connect the folder to GitHub once (see below) |
+### systemd
 
-Comments in code (`# Section | بخش`) travel **inside** each `.py` file you copy.  
-Markdown (`README`, `docs/`) is for reading on the server; the bot does not execute it.
-
-### فارسی — چطور کد به سرور می‌رسد
-
-| روش | کی استفاده کنیم |
-|-----|------------------|
-| **SCP** | پوشهٔ سرور با کپی دستی ساخته شده و `git pull` خطا می‌دهد — **احتمالاً وضعیت فعلی شما** |
-| **Git pull** | بعد از یک‌بار وصل کردن پوشه به گیت‌هاب (دستورات پایین) |
-
-توضیحات داخل کد همراه همان فایل `.py` منتقل می‌شود.  
-فایل‌های مارک‌داون فقط برای مطالعهٔ شما روی سرور است؛ ربات آن‌ها را اجرا نمی‌کند.
-
----
-
-### روش ۱ — SCP (بدون گیت) | Method A — SCP
-
-**فارسی — بعد از هر تغییر در ویندوز:**
-
-```text
-scp "C:\Users\Sohei\Desktop\Desktop\telegram_bot_project2\handlers\deal_gate.py" "root@49.13.132.230:/root/telegram_bot_project2/handlers/"
-scp "C:\Users\Sohei\Desktop\Desktop\telegram_bot_project2\handlers\offers.py" "root@49.13.132.230:/root/telegram_bot_project2/handlers/"
-scp "C:\Users\Sohei\Desktop\Desktop\telegram_bot_project2\database\db.py" "root@49.13.132.230:/root/telegram_bot_project2/database/"
-scp "C:\Users\Sohei\Desktop\Desktop\telegram_bot_project2\main.py" "root@49.13.132.230:/root/telegram_bot_project2/"
+```bash
+cp deploy/sepid-web-api.service /etc/systemd/system/
+cp deploy/sepid-web-ui.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now sepid-web-api sepid-web-ui
 ```
 
-**روی سرور:**
+### After code update | بعد از به‌روزرسانی
 
 ```bash
 cd /root/telegram_bot_project2
 ./venv/bin/python3 -c "from database.db import ensure_schema; ensure_schema()"
-systemctl restart telegram-bot
+systemctl restart sepid-web-api
+
+cd /root/web
+npm run build
+systemctl restart sepid-web-ui
 ```
 
-**English:** Copy changed files from Windows, then `ensure_schema` and restart the service.
-
----
-
-### روش ۲ — یک‌بار گیت روی سرور (بعداً `git pull`) | Method B — Git once
-
-**فارسی:** اگر `fatal: not a git repository` می‌گیرید، یعنی پوشه با SCP ساخته شده و هنوز گیت ندارد.  
-**فقط اگر `eurobot.db` و `.env` را بکاپ گرفتید** می‌توانید پوشه را به ریپو وصل کنید:
+### HTTPS (optional) | nginx
 
 ```bash
-cd /root/telegram_bot_project2
-# پشتیبان (مهم)
-cp eurobot.db /root/eurobot.db.bak
-cp .env /root/.env.bak
-
-# اتصال به گیت‌هاب (یک‌بار)
-git init
-git remote add origin https://github.com/soha15167/Sepid_Exchange_Bot.git
-git fetch origin
-git checkout -B main origin/main
-
-# بعد از این، به‌روزرسانی:
-git pull origin main
-./venv/bin/python3 -c "from database.db import ensure_schema; ensure_schema()"
-systemctl restart telegram-bot
+cp deploy/nginx-sepid.conf /etc/nginx/sites-available/sepid
+# edit server_name, then:
+nginx -t && systemctl reload nginx
+certbot --nginx -d your-domain.example
 ```
 
-**هشدار:** `git checkout` ممکن است فایل‌های محلی را عوض کند؛ حتماً `.env` و `eurobot.db` را نگه دارید.
+Details: [deploy/README.md](deploy/README.md).
 
-**English:** `git pull` only works after `git init` + `remote` + `checkout`. Back up `.env` and `eurobot.db` first.
+### SCP from Windows | انتقال از ویندوز
 
----
-
-### روش ۳ — کلون تازه در مسیر دیگر | Method C — Fresh clone
-
-**فارسی:** امن‌تر اگر نمی‌خواهید روی پوشهٔ فعلی ریسک کنید:
-
-```bash
-cd /root
-git clone https://github.com/soha15167/Sepid_Exchange_Bot.git telegram_bot_project2_git
-cd telegram_bot_project2_git
-cp /root/telegram_bot_project2/.env .
-cp /root/telegram_bot_project2/eurobot.db .
-python3 -m venv venv && ./venv/bin/pip install -r requirements.txt
-./venv/bin/python3 -c "from database.db import ensure_schema; ensure_schema()"
-# سپس مسیر سرویس systemd را به پوشهٔ جدید تغییر دهید
-```
-
-**English:** Clone to a new folder, copy `.env` and DB, point `systemctl` to the new path.
-
----
-
-## Code documentation | مستندات کد
-
-| Document | EN | FA |
-|----------|----|----|
-| [CODE_OVERVIEW.md](docs/CODE_OVERVIEW.md) | Architecture & file map | نقشه کد |
-| [DEAL_GATE.md](docs/DEAL_GATE.md) | Payment flow & callbacks | فلو واریز |
-| `*.py` module docstrings | Top of each file | ابتدای فایل |
-| `# Section N \| بخش N` | In-file section banners | بنر بخش در کد |
-
-### Commit messages | پیام کامیت
-
-**EN:** Prefer bilingual subject when touching docs: English line + Persian line in body.
-
-**FA:** برای تغییرات مستندات: عنوان انگلیسی + توضیح فارسی در body کامیت.
-
-Example | نمونه:
+**API + shared code → `/root/telegram_bot_project2/`**
 
 ```text
-docs: bilingual README and deal-gate section comments
-
-مستندات: README و بخش‌بندی deal_gate به فارسی و انگلیسی.
+scp "C:\Users\Sohei\Desktop\Desktop\telegram_bot_project2\web_api\routers\adverts.py" "root@49.13.132.230:/root/telegram_bot_project2/web_api/routers/"
+scp "C:\Users\Sohei\Desktop\Desktop\telegram_bot_project2\services\deal_gate_web.py" "root@49.13.132.230:/root/telegram_bot_project2/services/"
 ```
+
+**UI → `/root/web/`**
+
+```text
+scp "C:\Users\Sohei\Desktop\Desktop\telegram_bot_project2\web\src\components\DealGatePanel.tsx" "root@49.13.132.230:/root/web/src/components/"
+```
+
+Full tree copy: `scp -r web/* root@49.13.132.230:/root/web/`
+
+---
+
+## API overview | خلاصه API
+
+Base URL: `http://host:8100/api`
+
+| Route | EN |
+|-------|-----|
+| `POST /auth/*` | Register, login, OTP |
+| `GET /adverts` | Public advert list |
+| `POST /adverts` | Create euro ad (channel membership required) |
+| `POST /adverts/exchange` | Create exchange ad |
+| `GET /offers/mine` | My offers |
+| `POST /offers/{id}/accept` | Owner accept → starts Deal Gate |
+| `GET /deals/{offer_id}` | Deal Gate status |
+| `POST /deals/{offer_id}/response` | Party yes/no |
+| `POST /deals/{offer_id}/accounts` | Submit account text |
+| `GET /admin/*` | Admin panel (JWT + admin id) |
+
+OpenAPI: `http://127.0.0.1:8100/docs` when API is running.
 
 ---
 
 ## Security | امنیت
 
-**EN:** Never commit `.env` or `*.db`. Keep tokens on server only.
+**EN:** Never commit `.env`, `*.db`, or JWT secrets. Phone numbers must use international `+` format. Production OTP via Twilio; disable `WEB_DEV_OTP_IN_RESPONSE` on public servers.
 
-**FA:** `.env` و `*.db` را commit نکنید. توکن فقط روی سرور.
+**FA:** `.env` و دیتابیس را commit نکنید. شماره با `+` بین‌المللی. در production OTP واقعی؛ `WEB_DEV_OTP_IN_RESPONSE` را خاموش کنید.
+
+---
+
+## Related repos | ریپوهای مرتبط
+
+| Repo | EN | FA |
+|------|----|----|
+| [Sepid_Exchange_Bot](https://github.com/soha15167/Sepid_Exchange_Bot) | Telegram bot (primary) | ربات تلگرام |
+| **This repo** | Web UI + API companion | وب + API |
+| [docs/BOT_README.md](docs/BOT_README.md) | Full bot documentation | مستندات کامل ربات |
 
 ---
 

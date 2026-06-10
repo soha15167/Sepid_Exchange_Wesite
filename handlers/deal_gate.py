@@ -1022,11 +1022,15 @@ def _clear_deal_receipt_pending(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def _deal_gate_allows_party_receipts(gate: dict | None) -> bool:
-    """تا پایان معامله امکان ارسال فیش (چندتایی) — مگر لغو/بسته شدن."""
+    """تا پایان معامله امکان ارسال فیش (چندتایی) — مگر لغو/بسته شدن.
+
+    gate_status=completed یعنی «حساب‌ها جمع شد؛ فاز واریز» (docs/DEAL_GATE.md) —
+    در این مرحله فروشنده/خریدار باید بتوانند فیش بفرستند.
+    """
     if not gate:
         return False
     st = (gate.get("gate_status") or "").strip().lower()
-    return st not in ("completed", "closed", "rejected")
+    return st not in ("closed", "rejected")
 
 
 async def _party_receipt_ack(
@@ -3112,13 +3116,6 @@ async def _handle_deal_receipt_callback(
     if not gate or int(gate.get("buyer_telegram_id") or 0) != uid:
         await q.answer("فقط خریدار این معامله", show_alert=True)
         return
-    if not gate.get("buyer_toman_card_sent_at"):
-        await q.answer("ابتدا ادمین کارت واریز را ارسال کند.", show_alert=True)
-        return
-    if not _deal_gate_allows_party_receipts(gate):
-        await q.answer("این معامله بسته شده است.", show_alert=True)
-        return
-
     if action == "cancel":
         await q.answer("انصراف")
         _clear_deal_receipt_pending(context)
@@ -3131,6 +3128,13 @@ async def _handle_deal_receipt_callback(
             )
         except Exception:
             pass
+        return
+
+    if not gate.get("buyer_toman_card_sent_at"):
+        await q.answer("ابتدا ادمین کارت واریز را ارسال کند.", show_alert=True)
+        return
+    if not _deal_gate_allows_party_receipts(gate):
+        await q.answer("این معامله بسته شده است.", show_alert=True)
         return
 
     if action != "go":
@@ -3180,16 +3184,6 @@ async def _handle_deal_seller_receipt_callback(
     if not gate or int(gate.get("seller_telegram_id") or 0) != uid:
         await q.answer("فقط فروشنده این معامله", show_alert=True)
         return
-    if not gate.get("seller_eur_account_sent_at"):
-        await q.answer(
-            "ادمین هنوز «تومان نشست» را تأیید نکرده.",
-            show_alert=True,
-        )
-        return
-    if not _deal_gate_allows_party_receipts(gate):
-        await q.answer("این معامله بسته شده است.", show_alert=True)
-        return
-
     if action == "cancel":
         await q.answer("انصراف")
         _clear_deal_receipt_pending(context)
@@ -3202,6 +3196,16 @@ async def _handle_deal_seller_receipt_callback(
             )
         except Exception:
             pass
+        return
+
+    if not gate.get("seller_eur_account_sent_at"):
+        await q.answer(
+            "ادمین هنوز «تومان نشست» را تأیید نکرده.",
+            show_alert=True,
+        )
+        return
+    if not _deal_gate_allows_party_receipts(gate):
+        await q.answer("این معامله بسته شده است.", show_alert=True)
         return
 
     if action != "go":

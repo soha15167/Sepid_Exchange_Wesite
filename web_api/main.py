@@ -36,6 +36,9 @@ def create_app() -> FastAPI:
     app.include_router(adverts.router, prefix="/api")
     app.include_router(offers.router, prefix="/api")
     app.include_router(admin.router, prefix="/api")
+    from web_api.routers import info as info_router
+
+    app.include_router(info_router.router, prefix="/api")
 
     @app.get("/api/health")
     def health():

@@ -33,15 +33,43 @@ def normalize_email(raw: str) -> str:
     return (raw or "").strip().lower()
 
 
+def _ascii_digits(raw: str) -> str:
+    s = (raw or "").strip()
+    s = s.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789"))
+    s = s.translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789"))
+    return "".join(ch for ch in s if ch.isdigit())
+
+
+def _iran_mobile_suffix(digits: str) -> str | None:
+    """10-digit Iran mobile without country code (9xxxxxxxxx)."""
+    d = _ascii_digits(digits)
+    if len(d) == 11 and d.startswith("09"):
+        return d[1:]
+    if len(d) == 10 and d.startswith("9"):
+        return d
+    if len(d) >= 12 and d.startswith("98"):
+        tail = d[2:]
+        if len(tail) == 10 and tail.startswith("9"):
+            return tail
+    return None
+
+
 def normalize_lookup_phone(raw: str) -> str:
     s = (raw or "").strip()
     if not s:
         return ""
     if s.startswith("+"):
         return normalize_phone_input(s)
-    digits = "".join(ch for ch in s if ch.isdigit())
+    digits = _ascii_digits(s)
+    if not digits:
+        return ""
     if digits.startswith("00"):
         return normalize_phone_input("+" + digits[2:])
+    iran = _iran_mobile_suffix(digits)
+    if iran:
+        return normalize_phone_input("+98" + iran)
+    if digits.startswith("98") and len(digits) >= 12:
+        return normalize_phone_input("+" + digits)
     if digits.startswith("0") and len(digits) >= 10:
         return normalize_phone_input("+98" + digits[1:])
     if digits:
@@ -49,16 +77,65 @@ def normalize_lookup_phone(raw: str) -> str:
     return ""
 
 
+def _phone_match_keys(phone: str) -> set[str]:
+    """Keys for fuzzy phone lookup (exact E.164 + Iran mobile suffix)."""
+    keys: set[str] = set()
+    norm = normalize_lookup_phone(phone)
+    if norm:
+        keys.add(norm)
+        keys.add(_ascii_digits(norm))
+    raw_digits = _ascii_digits(phone)
+    if raw_digits:
+        keys.add(raw_digits)
+    iran = _iran_mobile_suffix(phone)
+    if iran:
+        keys.add(iran)
+        keys.add("98" + iran)
+        keys.add("+98" + iran)
+    return {k for k in keys if k}
+
+
 def find_user_by_phone(phone: str) -> dict | None:
     p = normalize_lookup_phone(phone)
-    if not p or not is_valid_phone(p):
+    keys = _phone_match_keys(phone)
+    if not keys and not p:
         return None
     with _connect() as conn:
-        row = conn.execute(
-            "SELECT * FROM users WHERE phone_number = ? ORDER BY rowid DESC LIMIT 1",
-            (p,),
-        ).fetchone()
-    return dict(row) if row else None
+        if p and is_valid_phone(p):
+            row = conn.execute(
+                "SELECT * FROM users WHERE phone_number = ? ORDER BY rowid DESC LIMIT 1",
+                (p,),
+            ).fetchone()
+            if row:
+                return dict(row)
+        iran = _iran_mobile_suffix(phone) or (p and _iran_mobile_suffix(p))
+        if iran:
+            like = f"%{iran}"
+            row = conn.execute(
+                """
+                SELECT * FROM users
+                WHERE phone_number IS NOT NULL AND TRIM(phone_number) != ''
+                  AND REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(phone_number, ''), ' ', ''), '-', ''), '+', ''), '۰', '0') LIKE ?
+                ORDER BY rowid DESC LIMIT 1
+                """,
+                (like,),
+            ).fetchone()
+            if row:
+                return dict(row)
+        rows = conn.execute(
+            """
+            SELECT * FROM users
+            WHERE phone_number IS NOT NULL AND TRIM(phone_number) != ''
+            ORDER BY rowid DESC
+            """
+        ).fetchall()
+        for row in rows:
+            rec = dict(row)
+            stored = rec.get("phone_number") or ""
+            stored_keys = _phone_match_keys(stored)
+            if keys & stored_keys:
+                return rec
+    return None
 
 
 def find_user_by_email(email: str) -> dict | None:
@@ -320,7 +397,9 @@ def list_public_euro_adverts(*, limit: int = 20, offset: int = 0) -> tuple[list[
         rows = conn.execute(
             """
             SELECT
-                a.rowid,
+                a.rowid AS rowid,
+                a.user_id,
+                a.full_name,
                 COALESCE(u.display_name, a.full_name) AS owner_name,
                 a.operation,
                 a.euro_amount,
@@ -329,9 +408,14 @@ def list_public_euro_adverts(*, limit: int = 20, offset: int = 0) -> tuple[list[
                 a.methods,
                 a.account_country,
                 a.instant_transfer,
+                a.city_ir,
+                a.city_int,
+                a.fee_override_eur,
                 COALESCE(a.euro_exchange, 0) AS euro_exchange,
+                a.status,
                 a.created_at,
-                a.channel_message_id
+                a.channel_message_id,
+                a.channel_chat_id
             FROM euro_adverts a
             LEFT JOIN users u ON u.telegram_id = a.user_id
             WHERE COALESCE(a.status, 'فعال') = 'فعال'

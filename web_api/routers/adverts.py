@@ -1,62 +1,53 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from telegram import Bot
 
-from config.settings import CHANNEL_USERNAME, LIST_RECENT_LIMIT
+from config.settings import BOT_TOKEN, LIST_RECENT_LIMIT
 from database.db import (
     count_euro_adverts_owned_by_user,
     delete_euro_advert_for_owner,
     get_db,
     get_euro_advert_by_rowid,
-    get_user,
     list_euro_adverts_owned_by_user,
     update_euro_advert_field_for_owner,
     user_advert_has_active_offers,
 )
 from database.web_auth import list_public_euro_adverts
+from services.advert_create_flow import (
+    get_create_flow_config,
+    validate_euro_advert,
+    validate_exchange_advert,
+)
 from services.advert_publish import (
     delete_advert_channel_message,
     publish_euro_advert_to_channel,
     refresh_advert_on_channel,
 )
+from services.advert_serialize import serialize_advert_for_web
+from services.channel_membership_web import check_user_can_publish_advert
 from web_api.deps import get_current_user, get_optional_user
-from web_api.schemas import AdvertCreateRequest, AdvertUpdateRequest
+from web_api.schemas import (
+    AdvertCreateRequest,
+    AdvertExchangeCreateRequest,
+    AdvertUpdateRequest,
+)
 
 router = APIRouter(prefix="/adverts", tags=["adverts"])
 
-_INSTANT_MAP = {
-    "have": "دارم",
-    "dont_have": "ندارم",
-    "unknown": "اطلاعی ندارم",
-}
+
+def _bot() -> Bot | None:
+    return Bot(token=BOT_TOKEN) if BOT_TOKEN else None
+
+
+async def _require_channel_member(uid: int) -> None:
+    status = await check_user_can_publish_advert(_bot(), uid)
+    if not status.get("allowed"):
+        raise HTTPException(status_code=403, detail=status.get("message") or "عضویت کانال الزامی است.")
 
 
 def _advert_dict(adv: dict, *, viewer_id: int | None = None) -> dict:
-    rid = int(adv.get("rowid") or adv.get("advert_rowid") or 0)
-    owner_id = int(adv.get("user_id") or 0)
-    ch_mid = adv.get("channel_message_id")
-    link = None
-    if ch_mid:
-        link = f"https://t.me/{CHANNEL_USERNAME}/{ch_mid}"
-    locked = user_advert_has_active_offers(rid)
-    return {
-        "id": rid,
-        "owner_id": owner_id,
-        "owner_name": adv.get("owner_name") or adv.get("full_name"),
-        "operation": adv.get("operation"),
-        "euro_amount": adv.get("euro_amount"),
-        "rate_toman": adv.get("rate_toman"),
-        "description": adv.get("description"),
-        "methods": (adv.get("methods") or "").split(", ") if isinstance(adv.get("methods"), str) else adv.get("methods"),
-        "account_country": adv.get("account_country"),
-        "instant_transfer": adv.get("instant_transfer"),
-        "euro_exchange": int(adv.get("euro_exchange") or 0),
-        "status": adv.get("status") or "فعال",
-        "created_at": adv.get("created_at"),
-        "channel_link": link,
-        "locked": locked,
-        "is_mine": viewer_id is not None and owner_id == viewer_id,
-    }
+    return serialize_advert_for_web(adv, viewer_id=viewer_id)
 
 
 @router.get("")
@@ -88,12 +79,64 @@ def my_adverts(
     total = count_euro_adverts_owned_by_user(uid)
     rows = list_euro_adverts_owned_by_user(uid, limit=lim, offset=off)
     pages = max(1, (total + lim - 1) // lim) if total else 1
+    enriched: list[dict] = []
+    for r in rows:
+        full = get_euro_advert_by_rowid(int(r["rowid"])) or r
+        enriched.append(_advert_dict(full, viewer_id=uid))
     return {
-        "items": [_advert_dict(r, viewer_id=uid) for r in rows],
+        "items": enriched,
         "page": page,
         "pages": pages,
         "total": total,
     }
+
+
+@router.get("/meta/create-flow")
+def create_flow_meta(_: dict = Depends(get_current_user)):
+    return get_create_flow_config()
+
+
+@router.get("/meta/channel-membership")
+async def channel_membership_meta(user: dict = Depends(get_current_user)):
+    return await check_user_can_publish_advert(_bot(), int(user["telegram_id"]))
+
+
+@router.post("/preview")
+def preview_euro_advert(body: AdvertCreateRequest, user: dict = Depends(get_current_user)):
+    result, err = validate_euro_advert(
+        user_id=int(user["telegram_id"]),
+        operation=body.operation,
+        euro_amount=int(body.euro_amount),
+        rate_toman=int(body.rate_toman),
+        description=body.description,
+        methods=body.methods,
+        account_country=body.account_country,
+        instant_transfer=body.instant_transfer,
+    )
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    return result
+
+
+@router.post("/exchange/preview")
+def preview_exchange_advert(
+    body: AdvertExchangeCreateRequest,
+    user: dict = Depends(get_current_user),
+):
+    result, err = validate_exchange_advert(
+        user_id=int(user["telegram_id"]),
+        side=body.side,
+        delivery=body.delivery,
+        euro_amount=int(body.euro_amount),
+        account_country=body.account_country,
+        city_ir=body.city_ir,
+        city_int=body.city_int,
+        description=body.description,
+        instant_transfer=body.instant_transfer,
+    )
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    return result
 
 
 @router.get("/{advert_id}")
@@ -108,17 +151,21 @@ def get_advert(advert_id: int, user: dict | None = Depends(get_optional_user)):
 @router.post("")
 async def create_advert(body: AdvertCreateRequest, user: dict = Depends(get_current_user)):
     uid = int(user["telegram_id"])
-    db_user = get_user(uid) or user
-    display = (db_user.get("display_name") or "").strip()
-    full_name = display or f"{db_user.get('full_name', '')} {db_user.get('last_name', '')}".strip()
+    await _require_channel_member(uid)
+    result, err = validate_euro_advert(
+        user_id=uid,
+        operation=body.operation,
+        euro_amount=int(body.euro_amount),
+        rate_toman=int(body.rate_toman),
+        description=body.description,
+        methods=body.methods,
+        account_country=body.account_country,
+        instant_transfer=body.instant_transfer,
+    )
+    if err or not result:
+        raise HTTPException(status_code=400, detail=err or "داده نامعتبر.")
 
-    instant = body.instant_transfer
-    if body.operation == "فروش" and instant:
-        instant = _INSTANT_MAP.get(instant, instant)
-    elif body.operation == "خرید":
-        instant = None
-
-    methods_csv = ", ".join(m.strip() for m in body.methods if m.strip())
+    draft = result["draft"]
     with get_db() as conn:
         conn.execute(
             """
@@ -129,25 +176,84 @@ async def create_advert(body: AdvertCreateRequest, user: dict = Depends(get_curr
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'فعال')
             """,
             (
-                uid,
-                full_name,
-                int(body.euro_amount),
-                int(body.rate_toman),
-                body.description.strip(),
-                methods_csv,
-                body.operation,
-                body.account_country.strip(),
-                instant,
+                draft["user_id"],
+                draft["full_name"],
+                draft["euro_amount"],
+                draft["rate_toman"],
+                draft["description"],
+                draft["methods"],
+                draft["operation"],
+                draft["account_country"],
+                draft["instant_transfer"],
             ),
         )
         advert_id = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
 
-    result = await publish_euro_advert_to_channel(advert_id)
-    if not result.get("ok"):
-        raise HTTPException(status_code=500, detail=result.get("error") or "انتشار ناموفق")
+    pub = await publish_euro_advert_to_channel(advert_id)
+    if not pub.get("ok"):
+        with get_db() as conn:
+            conn.execute("DELETE FROM euro_adverts WHERE rowid = ?", (advert_id,))
+        raise HTTPException(status_code=500, detail=pub.get("error") or "انتشار ناموفق")
 
     adv = get_euro_advert_by_rowid(advert_id)
-    return {"ok": True, "advert": _advert_dict(adv or {}, viewer_id=uid), "publish": result}
+    return {"ok": True, "advert": _advert_dict(adv or {}, viewer_id=uid), "publish": pub}
+
+
+@router.post("/exchange")
+async def create_exchange_advert(
+    body: AdvertExchangeCreateRequest,
+    user: dict = Depends(get_current_user),
+):
+    uid = int(user["telegram_id"])
+    await _require_channel_member(uid)
+    result, err = validate_exchange_advert(
+        user_id=uid,
+        side=body.side,
+        delivery=body.delivery,
+        euro_amount=int(body.euro_amount),
+        account_country=body.account_country,
+        city_ir=body.city_ir,
+        city_int=body.city_int,
+        description=body.description,
+        instant_transfer=body.instant_transfer,
+    )
+    if err or not result:
+        raise HTTPException(status_code=400, detail=err or "داده نامعتبر.")
+
+    draft = result["draft"]
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO euro_adverts (
+                user_id, full_name, euro_amount, rate_toman, description, methods, operation,
+                city_ir, city_int, account_country, instant_transfer, status
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'فعال')
+            """,
+            (
+                draft["user_id"],
+                draft["full_name"],
+                draft["euro_amount"],
+                draft["rate_toman"],
+                draft["description"],
+                draft["methods"],
+                draft["operation"],
+                draft["city_ir"],
+                draft["city_int"],
+                draft["account_country"],
+                draft["instant_transfer"],
+            ),
+        )
+        advert_id = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+
+    pub = await publish_euro_advert_to_channel(advert_id)
+    if not pub.get("ok"):
+        with get_db() as conn:
+            conn.execute("DELETE FROM euro_adverts WHERE rowid = ?", (advert_id,))
+        raise HTTPException(status_code=500, detail=pub.get("error") or "انتشار ناموفق")
+
+    adv = get_euro_advert_by_rowid(advert_id)
+    return {"ok": True, "advert": _advert_dict(adv or {}, viewer_id=uid), "publish": pub}
 
 
 @router.patch("/{advert_id}")
@@ -166,9 +272,16 @@ async def update_advert(
         "description": body.description.strip() if body.description else None,
         "account_country": body.account_country.strip() if body.account_country else None,
         "instant_transfer": body.instant_transfer,
+        "city_ir": body.city_ir.strip() if body.city_ir else None,
+        "city_int": body.city_int.strip() if body.city_int else None,
     }
     if body.methods is not None:
-        field_map["methods"] = ", ".join(m.strip() for m in body.methods if m.strip())
+        from services.payment_methods import validate_payment_methods
+
+        cleaned, m_err = validate_payment_methods(body.methods)
+        if m_err:
+            raise HTTPException(status_code=400, detail=m_err)
+        field_map["methods"] = ", ".join(cleaned)
 
     for field, value in field_map.items():
         if value is None:
